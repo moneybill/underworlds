@@ -175,15 +175,14 @@ func save_game() -> void:
 		f.store_string(JSON.stringify(data))
 
 
-## Loads the save. Returns where to pick up: "new" (no save or empty roster), "castle", or "camp"
-## (the party was in the Maze; it resumes at the camp fire on the square where the game was saved).
+## Loads the save. Returns a notice when a party was stranded in the Maze (the game closed mid-expedition).
 func load_game() -> String:
 	reset_state()
 	if not FileAccess.file_exists(save_path):
-		return "new"
+		return ""
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(save_path))
 	if typeof(parsed) != TYPE_DICTIONARY:
-		return "new"
+		return ""
 	var d: Dictionary = parsed
 	for cd in d.get("roster", []):
 		roster.append(Character.from_dict(cd))
@@ -197,20 +196,19 @@ func load_game() -> String:
 	outs = []
 	for o in d.get("outs", []):
 		outs.append({"ids": o["ids"].map(func(v): return int(v)), "pos": _int_dict(o["pos"])})
-	light = int(d.get("light", 0))
-	maporfic = int(d.get("maporfic", 0))
-	latumapic = bool(d.get("latumapic", false))
 	cleared = d.get("cleared", {})
 	seen = d.get("seen", {})
 	won = bool(d.get("won", false))
 	show_map = bool(d.get("show_map", false))
-	var was := String(d.get("mode", "castle"))
+	var notice := ""
+	if String(d.get("mode", "castle")) != "castle" and not party.is_empty():
+		outs.append({"ids": party.duplicate(), "pos": pos.duplicate()})
+		for c in party_chars():
+			c.loc = "OUT"
+		party.clear()
+		notice = "Your last expedition never came home. Those adventurers are now OUT in the Maze."
 	mode = "castle"
-	if roster.is_empty():
-		return "new"
-	if was != "castle" and not living().is_empty():
-		return "camp"
-	return "castle"
+	return notice
 
 
 func _int_dict(src: Dictionary) -> Dictionary:

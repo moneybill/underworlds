@@ -20,7 +20,6 @@ var mz: MazeScreens
 var fight: CombatScreens
 
 var view: MazeView
-var title: TitleScreen
 var scr: Dictionary = {}
 var _where: Label
 var _title: Label
@@ -46,27 +45,14 @@ func _ready() -> void:
 	mz = MazeScreens.new(self)
 	fight = CombatScreens.new(self)
 	Game.logged.connect(log_line)
-	title = TitleScreen.new(display, mono)
-	title.venture.connect(_venture_onwards)
-	add_child(title)
-
-
-## Title screen's "Venture Onwards": pick up from the last save, or start fresh at the Castle.
-func _venture_onwards() -> void:
-	var where := Game.load_game()
-	title.queue_free()
-	title = null
-	match where:
-		"camp":
-			Game.say("YOUR PARTY STIRS BESIDE THE CAMP FIRE.")
-			mz.camp()
-		"new":
-			town.castle()
-			say("Welcome to the Proving Grounds", "Trebor, the Mad Overlord, wants his amulet back from the wizard Werdna, who hides at the bottom of the maze beneath the castle.\n\n" +
-				"Start at the [color=#e3a33f]Edge of Town[/color]: open the [color=#e3a33f]Training Grounds[/color] and create six adventurers. Hawkwind recommends two fighters, a priest, a thief and two mages.\n\n" +
-				"Then gather them at Gilgamesh's Tavern, outfit them at Boltac's, and enter the Maze. Run home often.", town.castle)
-		_:
-			town.castle()
+	var notice := Game.load_game()
+	town.castle()
+	if Game.roster.is_empty():
+		say("Welcome to the Proving Grounds", "Trebor, the Mad Overlord, wants his amulet back from the wizard Werdna, who hides at the bottom of the maze beneath the castle.\n\n" +
+			"Start at the [color=#e3a33f]Edge of Town[/color]: open the [color=#e3a33f]Training Grounds[/color] and create six adventurers. Hawkwind recommends two fighters, a priest, a thief and two mages.\n\n" +
+			"Then gather them at Gilgamesh's Tavern, outfit them at Boltac's, and enter the Maze. Run home often.", town.castle)
+	elif notice != "":
+		say("Out in the Maze", notice, town.castle)
 
 
 # ---------- look & feel ----------
@@ -310,8 +296,6 @@ func _pad_press(k: String) -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if title != null:
-		return  # the title screen handles its own input
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
 	var ke := event as InputEventKey
