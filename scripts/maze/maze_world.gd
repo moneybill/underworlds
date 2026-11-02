@@ -9,7 +9,7 @@ const WALL_ART: Array[Texture2D] = [
 	preload("res://assets/images/maze/wall_3.webp"),
 	preload("res://assets/images/maze/wall_4.webp"),
 ]
-## Landmarks: too striking to repeat often, so they only turn up on one wall in RARE_EVERY.
+## Landmarks: too striking to repeat often, so they only turn up on one wall or floor in RARE_EVERY.
 const RARE_WALL_ART: Array[Texture2D] = [
 	preload("res://assets/images/maze/wall_rubble.webp"),
 	preload("res://assets/images/maze/wall_pentagram.webp"),
@@ -17,8 +17,22 @@ const RARE_WALL_ART: Array[Texture2D] = [
 const RARE_EVERY := 12
 const DOOR_ART: Array[Texture2D] = [preload("res://assets/images/maze/door_1.webp")]
 const OPEN_DOOR_ART: Array[Texture2D] = [preload("res://assets/images/maze/door_open_1.webp")]
-const FLOOR_ART: Array[Texture2D] = [preload("res://assets/images/maze/floor_1.webp")]
-const CEILING_ART: Array[Texture2D] = [preload("res://assets/images/maze/ceiling_1.webp"), preload("res://assets/images/maze/ceiling_2.webp")]
+const FLOOR_ART: Array[Texture2D] = [preload("res://assets/images/maze/floor_1.webp"), preload("res://assets/images/maze/floor_2.webp")]
+const RARE_FLOOR_ART: Array[Texture2D] = [
+	preload("res://assets/images/maze/floor_crown.webp"),
+	preload("res://assets/images/maze/floor_lion.webp"),
+]
+const CEILING_ART: Array[Texture2D] = [
+	preload("res://assets/images/maze/ceiling_1.webp"),
+	preload("res://assets/images/maze/ceiling_2.webp"),
+	preload("res://assets/images/maze/ceiling_3.webp"),
+	preload("res://assets/images/maze/ceiling_4.webp"),
+	preload("res://assets/images/maze/ceiling_5.webp"),
+	preload("res://assets/images/maze/ceiling_6.webp"),
+	preload("res://assets/images/maze/ceiling_7.webp"),
+	preload("res://assets/images/maze/ceiling_8.webp"),
+	preload("res://assets/images/maze/ceiling_9.webp"),
+]
 
 const CELL := 2.0  # the width of a square
 const HEIGHT := 1.5  # floor to ceiling, which keeps the 4:3 shape of the picture window
@@ -123,9 +137,17 @@ func _piece(art: Array[Texture2D], z: int, c: Vector2i, side: int) -> Texture2D:
 
 
 func _wall_piece(z: int, c: Vector2i, side: int) -> Texture2D:
+	return _piece_or_landmark(WALL_ART, RARE_WALL_ART, z, c, side)
+
+
+func _floor_piece(z: int, c: Vector2i) -> Texture2D:
+	return _piece_or_landmark(FLOOR_ART, RARE_FLOOR_ART, z, c, 4)
+
+
+func _piece_or_landmark(art: Array[Texture2D], rare: Array[Texture2D], z: int, c: Vector2i, side: int) -> Texture2D:
 	if posmod(hash([z, c.x, c.y, side, "rare"]), RARE_EVERY) == 0:
-		return RARE_WALL_ART[posmod(hash([z, c.x, c.y, side, "which"]), RARE_WALL_ART.size())]
-	return _piece(WALL_ART, z, c, side)
+		return rare[posmod(hash([z, c.x, c.y, side, "which"]), rare.size())]
+	return _piece(art, z, c, side)
 
 
 func _build(lv: MazeLevel) -> ArrayMesh:
@@ -148,7 +170,7 @@ func _add_square(parts: Dictionary, lv: MazeLevel, c: Vector2i, lit: bool) -> vo
 	var east := DIRS[1] * h
 	var north := DIRS[0] * h
 	var up := Vector3.UP * HEIGHT
-	_quad(_part(parts, _piece(FLOOR_ART, lv.z, c, 4)), [mid - east + north, mid + east + north, mid + east - north, mid - east - north], Vector3.UP, Rect2(0, 0, 1, 1))
+	_quad(_part(parts, _floor_piece(lv.z, c)), [mid - east + north, mid + east + north, mid + east - north, mid - east - north], Vector3.UP, Rect2(0, 0, 1, 1))
 	_quad(_part(parts, _piece(CEILING_ART, lv.z, c, 5)), [mid - east - north + up, mid + east - north + up, mid + east + north + up, mid - east + north + up], Vector3.DOWN, Rect2(0, 0, 1, 1))
 	if lv.flag(c.x, c.y, "up") or lv.flag(c.x, c.y, "down"):
 		for i in [-1, 0, 1]:

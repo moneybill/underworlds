@@ -297,6 +297,13 @@ func _test_town_map(g) -> void:
 	check(wall_counts.size() == MazeWorld.WALL_ART.size() + MazeWorld.RARE_WALL_ART.size(), "every wall piece turns up")
 	check(map_world._wall_piece(1, Vector2i(3, 4), 2) == map_world._wall_piece(1, Vector2i(3, 4), 2), "a wall always keeps the same piece")
 	check(wall_counts[MazeWorld.RARE_WALL_ART[0]] < wall_counts[MazeWorld.WALL_ART[0]] and wall_counts[MazeWorld.RARE_WALL_ART[1]] < wall_counts[MazeWorld.WALL_ART[0]], "landmark walls are rarer than plain ones")
+	var floor_counts := {}
+	for floor_y in MazeLevel.N:
+		for floor_x in MazeLevel.N:
+			var floor_tex: Texture2D = map_world._floor_piece(1, Vector2i(floor_x, floor_y))
+			floor_counts[floor_tex] = floor_counts.get(floor_tex, 0) + 1
+	check(floor_counts.size() == MazeWorld.FLOOR_ART.size() + MazeWorld.RARE_FLOOR_ART.size(), "every floor piece turns up")
+	check(floor_counts[MazeWorld.RARE_FLOOR_ART[0]] < floor_counts[MazeWorld.FLOOR_ART[0]] and floor_counts[MazeWorld.RARE_FLOOR_ART[1]] < floor_counts[MazeWorld.FLOOR_ART[0]], "crest floors are rarer than plain ones")
 	var map_pos: Dictionary = g.pos.duplicate()
 	var map_light: int = g.light
 	g.pos = {"x": 0, "y": 0, "z": 1, "d": 0}
