@@ -281,7 +281,69 @@ func _click_spot(k: String) -> void:
 
 ## The Castle is a map: each option has a building, clicks enter it, and greyed ones stay shut.
 func _test_town_map(g) -> void:
+	print("braziers")
+	var all_spots := 0
+	var corner_spots := 0
+	var spots_ok := true
+	for spot_z in range(1, g.MAZE_LEVELS + 1):
+		var spot_lv: MazeLevel = g.levels[spot_z]
+		var spots: Array = MazeWorld.brazier_spots(spot_lv)
+		check(spots.size() >= 5, "level %d has braziers" % spot_z)
+		check(spots.size() == MazeWorld.brazier_spots(spot_lv).size(), "level %d keeps its braziers in the same places" % spot_z)
+		for spot in spots:
+			all_spots += 1
+			if spot["corner"]:
+				corner_spots += 1
+			if spot_lv.flag(spot["c"].x, spot["c"].y, "dark") or spot_lv.flag(spot["c"].x, spot["c"].y, "up") or spot_lv.flag(spot["c"].x, spot["c"].y, "down"):
+				spots_ok = false
+			if spot["pos"].distance_to(MazeWorld.cell_centre(spot["c"])) >= MazeWorld.CELL:
+				spots_ok = false
+	check(spots_ok, "braziers stand inside their squares, away from stairs and darkness")
+	check(corner_spots * 2 > all_spots, "braziers are mostly in corners")
+	print("braziers: %d, in corners: %d" % [all_spots, corner_spots])
+	print("cobwebs")
+	var web_counts := {}
+	var webs_ok := true
+	var webs_clear := true
+	var webs_anchored := true
+	var web_lv: MazeLevel = g.levels[1]
+	var web_face: float = MazeWorld.CELL / 2.0 - MazeWorld.THICKNESS / 2.0
+	for web_y in MazeLevel.N:
+		for web_x in MazeLevel.N:
+			var web_cell := Vector2i(web_x, web_y)
+			var webs: Array = MazeWorld.web_spots(web_lv, web_cell)
+			if webs.size() != MazeWorld.web_spots(web_lv, web_cell).size():
+				webs_ok = false
+			for web in webs:
+				web_counts[web["art"]] = web_counts.get(web["art"], 0) + 1
+				if not is_equal_approx(web["top"].y, MazeWorld.HEIGHT):
+					webs_ok = false
+				if web["top"].y - web["drop"] <= MazeWorld.HEIGHT / 2.0:
+					webs_clear = false
+				var web_side: Vector3 = MazeWorld.web_right(web["facing"])
+				var web_across: float = (web["top"] - MazeWorld.cell_centre(web_cell)).dot(web_side)
+				if web["art"] == MazeWorld.WEB_FULL and (not is_zero_approx(web_across) or not is_equal_approx(web["width"], web_face * 2.0)):
+					webs_anchored = false
+				if web["art"] == MazeWorld.WEB_LEFT and not is_equal_approx(web_across - web["width"] / 2.0, -web_face):
+					webs_anchored = false
+				if web["art"] == MazeWorld.WEB_RIGHT and not is_equal_approx(web_across + web["width"] / 2.0, web_face):
+					webs_anchored = false
+				var wall_needed: int = MazeWorld.DIRS.find(web_side) if web["art"] != MazeWorld.WEB_LEFT else MazeWorld.DIRS.find(-web_side)
+				if web_lv.wall(web_x, web_y, wall_needed) != 1:
+					webs_anchored = false
+	check(web_counts.size() == 3, "the full, left and right cobwebs all hang somewhere")
+	check(webs_ok, "cobwebs hang from the ceiling and stay in the same places")
+	check(webs_clear, "cobwebs stay above the party's eye line")
+	check(webs_anchored, "cobwebs reach the walls they hang from")
+	print("cobwebs on level 1: full %d, left %d, right %d" % [web_counts.get(MazeWorld.WEB_FULL, 0), web_counts.get(MazeWorld.WEB_LEFT, 0), web_counts.get(MazeWorld.WEB_RIGHT, 0)])
 	print("maze in 3D")
+	var turn_button: Button = main._pad.get_child(4)
+	check(turn_button.icon != null and turn_button.text == "", "the turn around button shows its rotate icon")
+	main.mz.maze()
+	var turn_before: int = g.pos["d"]
+	turn_button.pressed.emit()
+	check(g.pos["d"] == (turn_before + 2) % 4, "the turn around button still turns the party around")
+	g.pos["d"] = turn_before
 	check(MazeWorld.camera_yaw(0) == 0.0 and is_equal_approx(MazeWorld.camera_yaw(1), -PI / 2.0), "the camera turns clockwise from north")
 	var cam_at := MazeWorld.camera_place(Vector2i(0, 0), 0)
 	check(cam_at.is_equal_approx(Vector3(1.0, 0.75, -0.1)), "the camera stands near the back of the square, halfway up")
@@ -317,6 +379,15 @@ func _test_town_map(g) -> void:
 	map_world.sync_to_party()
 	check(map_world._level.mesh != plain_mesh, "light rebuilds the level, to reveal secret doors")
 	check(map_world._torch.omni_range == MazeWorld.SPELL_REACH, "light spells reach farther than the torch")
+	check(map_world._braziers.size() == MazeWorld.brazier_spots(g.levels[1]).size(), "the level has its braziers standing")
+	var burning_ok := true
+	for burning in map_world._braziers:
+		var burning_near: bool = maxi(absi(burning["c"].x), absi(burning["c"].y)) <= MazeWorld.BRAZIER_NEAR
+		if burning["light"].visible != burning_near or burning["fire_on"] != burning_near:
+			burning_ok = false
+		if burning["fire"] != null and burning["fire"].find_children("*", "AudioStreamPlayer3D", true, false).size() > 0:
+			burning_ok = false
+	check(burning_ok, "only braziers near the party burn, and they stay silent")
 	var shows_open := func() -> bool:
 		for surface in map_world._level.mesh.get_surface_count():
 			if map_world._level.mesh.surface_get_material(surface).albedo_texture == MazeWorld.OPEN_DOOR_ART[0]:
@@ -709,6 +780,23 @@ func _test_start_flow(g, roster_size: int) -> void:
 	g.save_game()
 	await _venture_from_title()
 	check(g.mode == "camp", "a camp save resumes in camp")
+	var camp_scene = get_tree().current_scene
+	var camp_world: MazeWorld = camp_scene.view.world
+	var pack_here := ResourceLoader.exists(MazeWorld.CAMPFIRE_SCENE)
+	check(camp_world.has_campfire() == pack_here, "camp lights the campfire if the fire pack is installed")
+	if pack_here:
+		var fire_at: Vector3 = camp_world._campfire.position
+		check(is_equal_approx(fire_at.y, 0.0), "the campfire sits on the floor")
+		check(fire_at.distance_to(MazeWorld.cell_centre(Vector2i(g.pos["x"], g.pos["y"]))) < MazeWorld.CELL / 2.0, "the campfire is on the party's square")
+		var campfire_sound: AudioStreamPlayer3D = camp_world._campfire.get_node("Audio")
+		check(campfire_sound.autoplay and campfire_sound.stream != null, "the campfire has its sound")
+		check(camp_world._campfire.find_children("*", "OmniLight3D", true, false).is_empty() and camp_world._campfire_light.visible, "the campfire uses its own steady light, not the pack's")
+		var no_pack_light := true
+		for part in camp_world._campfire.get_children():
+			no_pack_light = no_pack_light and not ("intensity_multiplier" in part)
+		check(no_pack_light, "the pack's light node is gone from the campfire")
+	camp_scene.mz.maze()
+	check(not camp_world.has_campfire() and not camp_world._campfire_light.visible, "leaving camp puts the campfire and its light out")
 	g.mode = "combat"
 	g.save_game()
 	await _venture_from_title()

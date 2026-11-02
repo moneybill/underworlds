@@ -9,6 +9,8 @@ const BACKDROP_TABLE_FONT := 15  # lets the longest party row fit that column on
 const LOG_HEIGHT := 120.0
 const BACKDROP_LOG_HEIGHT := 50.0  # the column is short of room, and a full Inspect screen needs it
 
+const TURN_AROUND_ICON: Texture2D = preload("res://assets/images/rotate.png")
+
 var town: TownScreens
 var chars: CharScreens
 var mz: MazeScreens
@@ -67,6 +69,18 @@ func _ready() -> void:
 		say("Welcome to the Underworlds", "Trebor, the Mad Overlord, wants his amulet back from the wizard Werdna, who hides at the bottom of the maze beneath the castle.\n\n" +
 			"Start at the [color=#e3a33f]Edge of Town[/color]: open the [color=#e3a33f]Training Grounds[/color] and create six adventurers. Hawkwind recommends two fighters, a priest, a thief and two mages.\n\n" +
 			"Then gather them at Gilgamesh's Tavern, outfit them at Boltac's, and enter the Maze. Run home often.", town.castle)
+
+
+## This button turns the party to face the other way, so it shows a rotate icon.
+func _show_turn_around(b: Button) -> void:
+	b.icon = TURN_AROUND_ICON
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.tooltip_text = "Turn around"
+	b.add_theme_constant_override("icon_max_width", 26)
+	for state in ["icon_normal_color", "icon_hover_color", "icon_focus_color"]:
+		b.add_theme_color_override(state, UiStyle.C_INK)
+	for state in ["icon_pressed_color", "icon_hover_pressed_color"]:
+		b.add_theme_color_override(state, UiStyle.C_BG)
 
 
 ## Top middle of every screen, above the paintings.
@@ -193,12 +207,14 @@ func _build_layout() -> void:
 	_pad.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_pad.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_pad.position = Vector2(-10, -10)
-	for spec in [["◄", "A"], ["▲", "W"], ["►", "D"], ["", ""], ["▼", "X"], ["", ""]]:
-		if spec[0] == "":
+	for spec in [["◄", "A"], ["▲", "W"], ["►", "D"], ["", ""], ["", "X"], ["", ""]]:
+		if spec[1] == "":
 			_pad.add_child(Control.new())
 			continue
 		var b := Button.new()
 		b.text = spec[0]
+		if spec[1] == "X":
+			_show_turn_around(b)
 		b.custom_minimum_size = Vector2(52, 46)
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(_pad_press.bind(spec[1]))

@@ -6,3 +6,6 @@ export_presets.cfg
 # OS
 .DS_Store
 Thumbs.db
+
+# Vefects Free Fire VFX: its licence forbids uploading it to public repositories, so it stays local.
+/Vefects/

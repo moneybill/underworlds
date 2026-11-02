@@ -83,6 +83,10 @@ godot --headless --path . --script res://tools/selftest.gd
 
 The exit code is the number of failed checks.
 
+## Fire effects
+
+The campfire and brazier flames come from the **Vefects Free Fire VFX** pack, which needs the Forward+ renderer. Its licence forbids uploading it to public repositories, so `/Vefects/` is in `.gitignore`. On a fresh clone, copy the pack's `Vefects` folder into the project root; without it, camp shows a simple drawn flame and braziers glow without flames.
+
 ## Testing switches
 
 The **Monsters** and **God mode** buttons at the top of every screen are for testing. With monsters off no fights start in the Maze; in god mode the party takes no damage or harmful conditions. Both reset when the game closes.

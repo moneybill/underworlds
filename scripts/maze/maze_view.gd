@@ -40,6 +40,7 @@ func _shows_maze() -> bool:
 func _update_world() -> void:
 	if world != null:
 		world.set_active(_shows_maze() and is_visible_in_tree())
+		world.set_campfire(kind == "camp" and is_visible_in_tree())
 
 
 ## Renders the Maze at the window's own pixels, so the art stays sharp.
@@ -194,12 +195,18 @@ func _map() -> void:
 
 func _camp() -> void:
 	_maze(false)
+	if not world.has_campfire():
+		_drawn_campfire()
+	_txt("CAMP", 240, 60, 40, INK)
+
+
+## Stands in for the real fire when the Vefects pack isn't installed.
+func _drawn_campfire() -> void:
 	draw_rect(Rect2(0, 0, W, H), Color("05060a", .55))
 	var f := Vector2(240, 300)
 	draw_rect(Rect2(f.x - 30, f.y, 60, 8), Color("5a4a36"))
 	for fl in [[BLOOD, 26, 54], [TORCH, 18, 40], [INK, 8, 22]]:
 		_poly(PackedVector2Array([Vector2(f.x - fl[1], f.y), Vector2(f.x, f.y - fl[2]), Vector2(f.x + fl[1], f.y)]), fl[0])
-	_txt("CAMP", 240, 60, 40, INK)
 
 
 # ---------- combat ----------
