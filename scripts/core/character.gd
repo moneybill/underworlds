@@ -3,10 +3,13 @@ extends RefCounted
 ## One adventurer on the roster. Plain data plus the rules that belong to a single character.
 
 const DEAD_STATES := ["DEAD", "ASHES", "LOST"]
+const PORTRAIT_FILE := "res://assets/images/portraits/%s.webp"
 
 var id := 0
 var name := ""
 var race := "HUMAN"
+var sex := "MALE"
+var portrait := ""  # a name from Data.portraits()
 var align := "GOOD"
 var cls := "FIGHTER"
 var lvl := 1
@@ -25,6 +28,20 @@ var honor := false
 # combat-only
 var cac := 0
 var parry := false
+
+
+func his() -> String:
+	return "HER" if sex == "FEMALE" else "HIS"
+
+
+func him() -> String:
+	return "HER" if sex == "FEMALE" else "HIM"
+
+
+## The portrait's file, or "" when this character has none.
+func portrait_path() -> String:
+	var path := PORTRAIT_FILE % portrait
+	return path if portrait != "" and ResourceLoader.exists(path) else ""
 
 
 # ---------- bonuses ----------
@@ -229,7 +246,7 @@ func change_class(new_cls: String) -> void:
 
 # ---------- save / load ----------
 func to_dict() -> Dictionary:
-	return {"id": id, "name": name, "race": race, "align": align, "cls": cls, "lvl": lvl, "xp": xp, "age": age,
+	return {"id": id, "name": name, "race": race, "sex": sex, "portrait": portrait, "align": align, "cls": cls, "lvl": lvl, "xp": xp, "age": age,
 		"status": status, "loc": loc, "gold": gold, "hp": hp, "maxhp": maxhp, "stats": stats, "items": items,
 		"spells": spells, "sp": sp, "honor": honor}
 
@@ -253,4 +270,8 @@ static func from_dict(d: Dictionary) -> Character:
 		for v in d["sp"][school]:
 			c.sp[school].append(int(v))
 	c.honor = bool(d.get("honor", false))
+	c.sex = String(d.get("sex", "MALE"))
+	c.portrait = String(d.get("portrait", ""))
+	if c.portrait_path() == "":  # older saves have none
+		c.portrait = Data.portraits(c.sex)[0]
 	return c

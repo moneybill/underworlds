@@ -10,9 +10,9 @@ config_version=5
 
 [application]
 
-config/name="Underworlds 2"
-config/description="Proving Grounds of the Mad Overlord: a first-person, turn-based dungeon crawler."
-run/main_scene="res://scenes/main.tscn"
+config/name="Underworlds: Descent into Darkness"
+config/description="A first-person, turn-based dungeon crawler."
+run/main_scene="res://scenes/splash.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 
@@ -23,12 +23,16 @@ Game="*res://scripts/core/game.gd"
 
 [display]
 
-window/size/viewport_width=1280
+window/size/viewport_width=1422
 window/size/viewport_height=800
-window/size/window_width_override=1280
-window/size/window_height_override=800
+window/size/window_width_override=1920
+window/size/window_height_override=1080
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+
+[dotnet]
+
+project/assembly_name="Underworlds Descent into Darkness"
 
 [rendering]
 

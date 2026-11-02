@@ -4,10 +4,11 @@ extends Node
 
 signal logged(text: String, kind: String)
 
-const SAVE_PATH := "user://underworlds2_save.json"
+const SAVE_PATH := "user://underworlds_save.json"
 
 var save_path := SAVE_PATH  # tests point this elsewhere
 const MAZE_LEVELS := 4
+const MAX_ROSTER := 16
 
 var roster: Array[Character] = []
 var party: Array[int] = []
@@ -86,12 +87,18 @@ func living() -> Array[Character]:
 	return out
 
 
-func make_char(nm: String, race: String, al: String, st: Dictionary, cls_name: String) -> Character:
+func roster_full() -> bool:
+	return roster.size() >= MAX_ROSTER
+
+
+func make_char(nm: String, race: String, al: String, st: Dictionary, cls_name: String, sex := "MALE", portrait := "") -> Character:
 	var c := Character.new()
 	c.id = next_id
 	next_id += 1
 	c.name = nm
 	c.race = race
+	c.sex = sex
+	c.portrait = portrait
 	c.align = al
 	c.cls = cls_name
 	c.age = Dice.rnd(17, 21) * 52
@@ -166,6 +173,13 @@ func level() -> MazeLevel:
 
 
 # ---------- save / load ----------
+## Starts over: clears the state and deletes the saved game.
+func new_game() -> void:
+	reset_state()
+	if FileAccess.file_exists(save_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(save_path))
+
+
 func save_game() -> void:
 	var data := {"version": 1, "party": party, "pos": pos, "mode": mode, "next_id": next_id, "stock": stock, "outs": outs,
 		"light": light, "maporfic": maporfic, "latumapic": latumapic, "cleared": cleared, "seen": seen, "won": won,
@@ -175,14 +189,14 @@ func save_game() -> void:
 		f.store_string(JSON.stringify(data))
 
 
-## Loads the save. Returns a notice when a party was stranded in the Maze (the game closed mid-expedition).
-func load_game() -> String:
+## Loads the save, putting the party back where it was.
+func load_game() -> void:
 	reset_state()
 	if not FileAccess.file_exists(save_path):
-		return ""
+		return
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(save_path))
 	if typeof(parsed) != TYPE_DICTIONARY:
-		return ""
+		return
 	var d: Dictionary = parsed
 	for cd in d.get("roster", []):
 		roster.append(Character.from_dict(cd))
@@ -200,15 +214,11 @@ func load_game() -> String:
 	seen = d.get("seen", {})
 	won = bool(d.get("won", false))
 	show_map = bool(d.get("show_map", false))
-	var notice := ""
-	if String(d.get("mode", "castle")) != "castle" and not party.is_empty():
-		outs.append({"ids": party.duplicate(), "pos": pos.duplicate()})
-		for c in party_chars():
-			c.loc = "OUT"
-		party.clear()
-		notice = "Your last expedition never came home. Those adventurers are now OUT in the Maze."
-	mode = "castle"
-	return notice
+	light = int(d.get("light", 0))
+	maporfic = int(d.get("maporfic", 0))
+	latumapic = bool(d.get("latumapic", false))
+	if not party.is_empty():
+		mode = String(d.get("mode", "castle"))
 
 
 func _int_dict(src: Dictionary) -> Dictionary:

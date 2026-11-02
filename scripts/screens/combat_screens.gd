@@ -44,7 +44,7 @@ func _friendly() -> void:
 	var n := battle.live(gp).size()
 	ui.show_screen({"title": "A friendly group", "where": _where(), "view": "combat",
 		"body": "A friendly group of %d %s. They hail you in welcome!\n\n" % [n, battle.gname(gp, n)] + ui.flav("How you answer a peaceful greeting may change you."),
-		"opts": [{"k": "F", "label": "FIGHT", "fn": _attack_friends}, {"k": "L", "label": "LEAVE IN PEACE", "def": true, "fn": _leave_in_peace}]})
+		"opts": [{"k": "F", "label": "FIGHT", "fn": _attack_friends}, {"k": "L", "label": "LEAVE IN PEACE", "fn": _leave_in_peace}]})
 
 
 func _attack_friends() -> void:
@@ -104,8 +104,8 @@ func next_cmd(i: int) -> void:
 	var undead := battle.alive_groups().filter(func(g): return Data.MONS[battle.groups[g]["id"]].get("undead", false))
 	var usable := c.items.filter(func(it): return c.item_def(it).has("spell") and not it.get("broken", false) and "CA".contains(Data.SPELLS[c.item_def(it)["spell"]][2]))
 	ui.show_screen({"title": "%s's options" % c.name, "where": _where(), "view": "combat", "body": groups_text(), "opts": [
-		{"k": "F", "label": "FIGHT", "hide": not front, "def": front, "fn": _choose_group.bind(battle.alive_groups().slice(0, 2), _order.bind(i, c, "fight"), again)},
-		{"k": "P", "label": "PARRY", "def": not front, "fn": _push.bind(i, {"c": c, "type": "parry"})},
+		{"k": "F", "label": "FIGHT", "hide": not front, "fn": _choose_group.bind(battle.alive_groups().slice(0, 2), _order.bind(i, c, "fight"), again)},
+		{"k": "P", "label": "PARRY", "fn": _push.bind(i, {"c": c, "type": "parry"})},
 		{"k": "D", "label": "DISPELL", "hide": not battle.can_dispel(c), "dis": undead.is_empty() or no_magic, "fn": _choose_group.bind(undead, _order.bind(i, c, "dispel"), again)},
 		{"k": "S", "label": "SPELL", "hide": c.spells.is_empty(), "dis": no_magic or battle.combat_spells(c).is_empty(), "fn": _pick_spell.bind(i, c)},
 		{"k": "U", "label": "USE", "dis": usable.is_empty() or no_magic, "fn": _pick_item.bind(i, c, usable)},
@@ -163,9 +163,9 @@ func _pick_item(i: int, c: Character, usable: Array) -> void:
 
 
 func _confirm() -> void:
-	ui.show_screen({"title": "Ready?", "where": _where(), "view": "combat", "body": groups_text() + "\nPress ENTER to fight, or take back your orders.", "opts": [
-		{"k": "Enter", "label": "FIGHT!", "def": true, "fn": func(): ui.clear_log(); _after(battle.play_round(false))},
-		{"k": "T", "label": "TAKE BACK", "esc": true, "fn": func(): battle.cmds = []; next_cmd(0)},
+	ui.show_screen({"title": "Ready?", "where": _where(), "view": "combat", "body": groups_text() + "\nFight, or take back your orders.", "opts": [
+		{"k": "Enter", "label": "FIGHT!", "fn": func(): ui.clear_log(); _after(battle.play_round(false))},
+		{"k": "T", "label": "TAKE BACK", "fn": func(): battle.cmds = []; next_cmd(0)},
 	]})
 
 
@@ -223,13 +223,13 @@ func open_chest(gold: int, boss_chest: bool) -> void:
 func chest_menu() -> void:
 	var who := func(title: String, fn: Callable): ui.pick_member(title, chest_menu, fn, func(c): return c.can_act())
 	ui.show_screen({"title": "A chest!", "where": _where(), "view": "chest",
-		"body": ui.flav("The monsters were guarding a treasure chest. Chests are usually trapped, and this is the moment your thief earns his share."),
+		"body": ui.flav("The monsters were guarding a treasure chest. Chests are usually trapped, and this is the moment your thief earns a share."),
 		"opts": [
 			{"k": "O", "label": "OPEN", "fn": func(): who.call("Who opens it?", _open)},
 			{"k": "I", "label": "INSPECT", "fn": func(): who.call("Who inspects it?", _inspect)},
 			{"k": "C", "label": "CALFO", "fn": func(): who.call("Who casts CALFO?", _calfo)},
 			{"k": "D", "label": "DISARM", "fn": func(): who.call("Who disarms it?", _disarm)},
-			{"k": "L", "label": "LEAVE", "esc": true, "fn": func(): Game.say("YOU LEAVE THE CHEST ALONE."); chest = {}; ui.mz.maze()},
+			{"k": "L", "label": "LEAVE", "fn": func(): Game.say("YOU LEAVE THE CHEST ALONE."); chest = {}; ui.mz.maze()},
 		]})
 
 
@@ -271,7 +271,7 @@ func _calfo(c: Character) -> void:
 func _disarm(c: Character) -> void:
 	ui.show_screen({"title": "Disarm", "view": "chest",
 		"body": "%s studies the lock. Type the name of the trap. Spelling counts.\n[color=#9c947f]%s[/color]" % [ui.esc(c.name), " · ".join(Data.TRAPS)],
-		"input": {"ph": "TRAP NAME", "max": 20, "fn": func(v): _try_disarm(c, v)}, "opts": [{"k": "Escape", "label": "LEAVE", "esc": true, "fn": chest_menu}]})
+		"input": {"ph": "TRAP NAME", "max": 20, "fn": func(v): _try_disarm(c, v)}, "opts": [{"k": "Escape", "label": "LEAVE", "fn": chest_menu}]})
 
 
 func _try_disarm(c: Character, v: String) -> void:

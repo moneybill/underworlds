@@ -1,18 +1,13 @@
 extends Control
 ## Root of the game. Builds the screen layout in code and runs the menu system that every
-## location uses: a title, a body, and lettered options you press (B)UY style, as in the manual.
+## location uses: a title, a body, and options to click or tap.
 
-const C_BG := Color("0f1119")
-const C_STONE := Color("191d29")
-const C_STONE2 := Color("222738")
-const C_LINE := Color("3a4159")
-const C_INK := Color("eadfc4")
-const C_DIM := Color("9c947f")
-const C_TORCH := Color("e3a33f")
-const C_BLOOD := Color("d6563f")
-const C_MANA := Color("8bace6")
-const C_MOSS := Color("93c07e")
 const KIND_COLORS := {"hit": "d6563f", "mag": "8bace6", "gold": "e3a33f", "ok": "93c07e", "": "9c947f"}
+const PORTRAIT_SIZE := 300.0
+const BACKDROP_COLUMN := 540.0  # width of the text column over a painted backdrop, clear of its center
+const BACKDROP_TABLE_FONT := 15  # lets the longest party row fit that column on one line
+const LOG_HEIGHT := 120.0
+const BACKDROP_LOG_HEIGHT := 50.0  # the column is short of room, and a full Inspect screen needs it
 
 var town: TownScreens
 var chars: CharScreens
@@ -25,124 +20,130 @@ var _where: Label
 var _title: Label
 var _body: RichTextLabel
 var _widget_box: VBoxContainer
+var _portrait: PanelContainer
+var _side: PanelContainer
+var _portrait_image: TextureRect
 var _entry: LineEdit
 var _opts_flow: HFlowContainer
 var _opts_col: VBoxContainer
 var _log: RichTextLabel
 var _party: RichTextLabel
 var _pad: GridContainer
+var town_map: TownMap
+var place_image := ""  # the painting of the building the party is in; every screen shows it until cleared
+var _backdrop: TextureRect
+var _header: HBoxContainer
+var _view_box: AspectRatioContainer
+var _panel: PanelContainer
+var _table: PanelContainer
+var _foot: Label
 var mono: Font
 var display: Font
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
-	_build_fonts()
-	theme = _build_theme()
+	mono = UiStyle.mono_font()
+	display = UiStyle.display_font()
+	theme = UiStyle.build_theme(mono)
 	_build_layout()
+	town_map = TownMap.new(self)
+	town_map.visible = false
+	town_map.chosen.connect(_run)
+	add_child(town_map)
 	town = TownScreens.new(self)
 	chars = CharScreens.new(self)
 	mz = MazeScreens.new(self)
 	fight = CombatScreens.new(self)
 	Game.logged.connect(log_line)
-	var notice := Game.load_game()
-	town.castle()
-	if Game.roster.is_empty():
-		say("Welcome to the Proving Grounds", "Trebor, the Mad Overlord, wants his amulet back from the wizard Werdna, who hides at the bottom of the maze beneath the castle.\n\n" +
+	Game.load_game()
+	if not Game.roster.is_empty():
+		_resume()
+	else:
+		town.castle()
+		say("Welcome to the Underworlds", "Trebor, the Mad Overlord, wants his amulet back from the wizard Werdna, who hides at the bottom of the maze beneath the castle.\n\n" +
 			"Start at the [color=#e3a33f]Edge of Town[/color]: open the [color=#e3a33f]Training Grounds[/color] and create six adventurers. Hawkwind recommends two fighters, a priest, a thief and two mages.\n\n" +
 			"Then gather them at Gilgamesh's Tavern, outfit them at Boltac's, and enter the Maze. Run home often.", town.castle)
-	elif notice != "":
-		say("Out in the Maze", notice, town.castle)
 
 
-# ---------- look & feel ----------
-func _build_fonts() -> void:
-	mono = _font_or_system("res://fonts/VT323-Regular.ttf", ["VT323", "Menlo", "Consolas", "Courier New", "monospace"])
-	display = _font_or_system("res://fonts/IMFellEnglishSC-Regular.ttf", ["IM Fell English SC", "Georgia", "Times New Roman", "serif"])
-
-
-func _font_or_system(path: String, names: Array) -> Font:
-	if ResourceLoader.exists(path):
-		return load(path)
-	var f := SystemFont.new()
-	f.font_names = PackedStringArray(names)
-	return f
-
-
-func _box(bg: Color, border: Color, pad := 8) -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = bg
-	sb.border_color = border
-	sb.set_border_width_all(1)
-	sb.set_content_margin_all(pad)
-	return sb
-
-
-func _build_theme() -> Theme:
-	var t := Theme.new()
-	t.default_font = mono
-	t.default_font_size = 22
-	t.set_color("font_color", "Label", C_INK)
-	t.set_color("default_color", "RichTextLabel", C_INK)
-	for st in ["normal", "focus"]:
-		t.set_stylebox(st, "Button", _box(C_STONE2, C_LINE, 7))
-	t.set_stylebox("hover", "Button", _box(C_STONE2, C_DIM, 7))
-	t.set_stylebox("pressed", "Button", _box(C_TORCH, C_TORCH, 7))
-	t.set_stylebox("disabled", "Button", _box(C_STONE, C_STONE2, 7))
-	t.set_color("font_color", "Button", C_INK)
-	t.set_color("font_hover_color", "Button", C_INK)
-	t.set_color("font_pressed_color", "Button", C_BG)
-	t.set_color("font_disabled_color", "Button", Color(C_INK, 0.35))
-	t.set_stylebox("normal", "LineEdit", _box(C_BG, C_LINE, 6))
-	t.set_stylebox("focus", "LineEdit", _box(C_BG, C_TORCH, 6))
-	t.set_color("font_color", "LineEdit", C_INK)
-	t.set_stylebox("panel", "PanelContainer", _box(C_STONE, C_LINE, 14))
-	return t
+## Returns to where the last save left the party. A fight isn't saved, so it resumes in the Maze.
+func _resume() -> void:
+	if Game.mode == "castle":
+		town.castle()
+	elif Game.living().is_empty():
+		mz.wiped()
+	elif Game.mode == "camp":
+		mz.camp()
+	else:
+		mz.maze()
 
 
 func _build_layout() -> void:
 	var bg := ColorRect.new()
-	bg.color = C_BG
+	bg.color = UiStyle.C_BG
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
+	_backdrop = TextureRect.new()
+	_backdrop.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_backdrop.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_backdrop.visible = false
+	add_child(_backdrop)
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
 	for side in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 16)
 	add_child(margin)
+	_portrait = PanelContainer.new()
+	_portrait.add_theme_stylebox_override("panel", UiStyle.box(UiStyle.C_BG, UiStyle.C_LINE, 4))
+	_portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_portrait.visible = false
+	add_child(_portrait)
+	_portrait_image = TextureRect.new()
+	_portrait_image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_portrait_image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_portrait_image.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	_portrait_image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_portrait.add_child(_portrait_image)
+	_side = PanelContainer.new()
+	_side.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.94), UiStyle.C_LINE, 14))
+	_side.visible = false
+	add_child(_side)
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 12)
 	margin.add_child(root)
 
-	var header := HBoxContainer.new()
+	_header = HBoxContainer.new()
 	var h1 := Label.new()
-	h1.text = "Underworlds 2"
+	h1.text = "Underworlds"
 	h1.add_theme_font_override("font", display)
 	h1.add_theme_font_size_override("font_size", 38)
-	h1.add_theme_color_override("font_color", C_TORCH)
-	header.add_child(h1)
+	h1.add_theme_color_override("font_color", UiStyle.C_TORCH)
+	_header.add_child(h1)
 	var sub := Label.new()
-	sub.text = "  PROVING GROUNDS OF THE MAD OVERLORD"
-	sub.add_theme_color_override("font_color", C_DIM)
+	sub.text = "  DESCENT INTO DARKNESS"
+	sub.add_theme_color_override("font_color", UiStyle.C_DIM)
 	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(sub)
+	_header.add_child(sub)
 	_where = Label.new()
-	_where.add_theme_color_override("font_color", C_DIM)
-	header.add_child(_where)
-	root.add_child(header)
+	_where.add_theme_color_override("font_color", UiStyle.C_DIM)
+	_header.add_child(_where)
+	root.add_child(_header)
 
 	var main := HBoxContainer.new()
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	main.add_theme_constant_override("separation", 14)
 	root.add_child(main)
-	var aspect := AspectRatioContainer.new()
-	aspect.ratio = 4.0 / 3.0
-	aspect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	aspect.size_flags_stretch_ratio = 1.1
-	main.add_child(aspect)
+	_view_box = AspectRatioContainer.new()
+	_view_box.ratio = 4.0 / 3.0
+	_view_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_view_box.size_flags_stretch_ratio = 1.1
+	main.add_child(_view_box)
 	view = MazeView.new()
 	view.mono = mono
-	aspect.add_child(view)
+	_view_box.add_child(view)
 	_pad = GridContainer.new()
 	_pad.columns = 3
 	_pad.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -161,16 +162,17 @@ func _build_layout() -> void:
 		_pad.add_child(b)
 	view.add_child(_pad)
 
-	var panel := PanelContainer.new()
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	main.add_child(panel)
+	_panel = PanelContainer.new()
+	_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_panel.item_rect_changed.connect(_place_portrait)
+	main.add_child(_panel)
 	var pv := VBoxContainer.new()
 	pv.add_theme_constant_override("separation", 10)
-	panel.add_child(pv)
+	_panel.add_child(pv)
 	_title = Label.new()
 	_title.add_theme_font_override("font", display)
 	_title.add_theme_font_size_override("font_size", 28)
-	_title.add_theme_color_override("font_color", C_TORCH)
+	_title.add_theme_color_override("font_color", UiStyle.C_TORCH)
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	pv.add_child(_title)
 	_body = RichTextLabel.new()
@@ -196,28 +198,31 @@ func _build_layout() -> void:
 	_log.bbcode_enabled = true
 	_log.scroll_following = true
 	_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_log.custom_minimum_size = Vector2(0, 120)
+	_log.custom_minimum_size = Vector2(0, LOG_HEIGHT)
 	pv.add_child(_log)
 
-	var tbl := PanelContainer.new()
-	root.add_child(tbl)
+	_table = PanelContainer.new()
+	root.add_child(_table)
 	_party = RichTextLabel.new()
 	_party.bbcode_enabled = true
 	_party.fit_content = true
 	_party.scroll_active = false
-	tbl.add_child(_party)
-	var foot := Label.new()
-	foot.text = "Press the letter before the ) or click a command. In the Maze: W step forward, A/D turn, X about-face."
-	foot.add_theme_color_override("font_color", C_DIM)
-	foot.add_theme_font_size_override("font_size", 18)
-	root.add_child(foot)
+	_table.add_child(_party)
+	_foot = Label.new()
+	_foot.text = "Click or tap a command. In the Maze, use the arrow buttons to move."
+	_foot.add_theme_color_override("font_color", UiStyle.C_DIM)
+	_foot.add_theme_font_size_override("font_size", 18)
+	root.add_child(_foot)
 
 
 # ---------- the menu system ----------
-## s: {title, where, body (bbcode), opts: [{k, label, fn, def, esc, dis, hide, right}], col,
-##     input: {ph, max, fn}, keys: {key: Callable}, view, pad, widget: Control}
+## s: {title, where, body (bbcode), opts: [{k (the option's id), label, fn, dis, hide, right}], col,
+##     input: {ph, max, fn}, moves: {pad button: Callable}, view, pad, widget: Control, map, portrait: path, side: Control}
 func show_screen(s: Dictionary) -> void:
 	scr = s
+	_set_backdrop(place_image)
+	_set_portrait(s.get("portrait", ""))
+	_set_side(s.get("side"))
 	_title.text = s.get("title", "")
 	if s.has("where"):
 		_where.text = String(s["where"]).to_upper()
@@ -231,7 +236,10 @@ func show_screen(s: Dictionary) -> void:
 	var col: bool = s.get("col", false)
 	_opts_flow.visible = not col
 	_opts_col.visible = col
-	for o in s.get("opts", []):
+	var opts: Array = s.get("opts", [])
+	if s.has("input"):
+		opts = [{"k": "OK", "label": "OK", "fn": _submit_input}] + opts
+	for o in opts:
 		if o.get("hide", false):
 			continue
 		var b := Button.new()
@@ -239,8 +247,6 @@ func show_screen(s: Dictionary) -> void:
 		b.focus_mode = Control.FOCUS_NONE
 		b.disabled = o.get("dis", false)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		if o.get("def", false):
-			b.add_theme_stylebox_override("normal", _box(C_STONE2, C_TORCH, 7))
 		b.pressed.connect(_run.bind(o))
 		(_opts_col if col else _opts_flow).add_child(b)
 	_entry.visible = s.has("input")
@@ -254,18 +260,70 @@ func show_screen(s: Dictionary) -> void:
 	_pad.visible = s.get("pad", false)
 	view.show_view(s.get("view", view.kind))
 	render_party()
+	town_map.visible = s.get("map", false)
+	if town_map.visible:
+		town_map.show_options(s)
+
+
+## With a backdrop, the painting fills the window and the text and party share a column on the left.
+func _set_backdrop(path: String) -> void:
+	var on := path != ""
+	if on != _backdrop.visible:
+		_party.text = ""  # a table keeps its old column widths unless it is rebuilt at the new size
+	_backdrop.visible = on
+	_backdrop.texture = load(path) if on else null
+	_header.visible = not on
+	_view_box.visible = not on
+	_foot.visible = not on
+	_log.custom_minimum_size.y = BACKDROP_LOG_HEIGHT if on else LOG_HEIGHT
+	if on:
+		_party.add_theme_font_size_override("normal_font_size", BACKDROP_TABLE_FONT)
+	else:
+		_party.remove_theme_font_size_override("normal_font_size")
+	for p: PanelContainer in [_panel, _table]:
+		p.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN if on else Control.SIZE_EXPAND_FILL
+		p.custom_minimum_size.x = BACKDROP_COLUMN if on else 0.0
+		if on:
+			p.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.88), UiStyle.C_LINE, 8))
+		else:
+			p.remove_theme_stylebox_override("panel")
+
+
+func _set_portrait(path: String) -> void:
+	_portrait.visible = path != ""
+	_portrait_image.texture = load(path) if path != "" else null
+	_place_portrait()
+
+
+## A popup of the screen's own beside the text panel, in the same place as a portrait.
+func _set_side(content: Control) -> void:
+	for n in _side.get_children():
+		_side.remove_child(n)
+		n.queue_free()
+	_side.visible = content != null
+	if content != null:
+		_side.add_child(content)
+		_fit_side.call_deferred()
+	_place_portrait()
+
+
+## Wrapped text only knows its height once it has been laid out at its width.
+func _fit_side() -> void:
+	await get_tree().process_frame
+	_side.reset_size()
+
+
+## The portrait sits beside the text panel: over the painting, or over the view on unpainted screens.
+func _place_portrait() -> void:
+	var r := _panel.get_global_rect()
+	var x := r.end.x + 14 if _backdrop.visible else r.position.x - 14 - PORTRAIT_SIZE
+	_portrait.size = Vector2.ONE * PORTRAIT_SIZE
+	_portrait.global_position = Vector2(x, r.position.y)
+	_side.global_position = Vector2(x, r.position.y)
 
 
 func _opt_text(o: Dictionary) -> String:
-	var k: String = o["k"]
-	var label: String = String(o["label"]).to_upper()
-	var t := ""
-	if k.length() == 1 and label.begins_with(k.to_upper()):
-		t = k.to_upper() + ")" + label.substr(1)
-	elif k.length() == 1:
-		t = k.to_upper() + ") " + label
-	else:
-		t = "[" + k.to_upper() + "] " + label
+	var t := String(o["label"]).to_upper()
 	if o.has("right") and String(o["right"]) != "":
 		t += "   " + String(o["right"])
 	return t
@@ -289,57 +347,14 @@ func _on_input_submitted(text: String) -> void:
 		f.call(text.strip_edges().to_upper())
 
 
+func _submit_input() -> void:
+	_on_input_submitted(_entry.text)
+
+
 func _pad_press(k: String) -> void:
-	var keys: Dictionary = scr.get("keys", {})
-	if keys.has(k):
-		keys[k].call()
-
-
-func _input(event: InputEvent) -> void:
-	if not (event is InputEventKey) or not event.pressed or event.echo:
-		return
-	var ke := event as InputEventKey
-	if ke.ctrl_pressed or ke.meta_pressed or ke.alt_pressed:
-		return
-	var key := OS.get_keycode_string(ke.keycode)
-	if key.begins_with("Kp "):
-		key = key.substr(3)
-	if key == "Kp Enter":
-		key = "Enter"
-	var ch := char(ke.unicode) if ke.unicode > 0 else ""
-	if _entry.has_focus():
-		if key == "Escape":
-			_press_flag("esc")
-			get_viewport().set_input_as_handled()
-		return
-	var keys: Dictionary = scr.get("keys", {})
-	for cand in [key, ch]:
-		if cand != "" and keys.has(cand):
-			get_viewport().set_input_as_handled()
-			keys[cand].call()
-			return
-	if key == "Enter":
-		_press_flag("def")
-	elif key == "Escape":
-		_press_flag("esc")
-	else:
-		for o in scr.get("opts", []):
-			if o.get("hide", false) or o.get("dis", false):
-				continue
-			var ok: String = String(o["k"]).to_upper()
-			if ok == key.to_upper() or (ch != "" and ok == ch.to_upper()):
-				get_viewport().set_input_as_handled()
-				_run(o)
-				return
-		return
-	get_viewport().set_input_as_handled()
-
-
-func _press_flag(flag: String) -> void:
-	for o in scr.get("opts", []):
-		if o.get(flag, false) and not o.get("dis", false) and not o.get("hide", false):
-			_run(o)
-			return
+	var moves: Dictionary = scr.get("moves", {})
+	if moves.has(k):
+		moves[k].call()
 
 
 # ---------- helpers every screen uses ----------
@@ -352,16 +367,16 @@ func flav(t: String) -> String:
 
 
 func say(title: String, body: String, next: Callable, where := "") -> void:
-	var s := {"title": title, "body": body, "opts": [{"k": "Enter", "label": "CONTINUE", "def": true, "esc": true, "fn": next}]}
+	var s := {"title": title, "body": body, "opts": [{"k": "Enter", "label": "CONTINUE", "fn": next}]}
 	if where != "":
 		s["where"] = where
 	show_screen(s)
 
 
-func yesno(title: String, body: String, yes: Callable, no: Callable) -> void:
-	show_screen({"title": title, "body": body, "opts": [
+func yesno(title: String, body: String, yes: Callable, no: Callable, portrait := "") -> void:
+	show_screen({"title": title, "body": body, "portrait": portrait, "opts": [
 		{"k": "Y", "label": "YES", "fn": yes},
-		{"k": "N", "label": "NO", "def": true, "esc": true, "fn": no}]})
+		{"k": "N", "label": "NO", "fn": no}]})
 
 
 ## items: [{label, fn, dis, right}] become numbered options 1..9.
@@ -371,7 +386,7 @@ func choose_list(title: String, body: String, items: Array, back: Callable, extr
 		var it: Dictionary = items[i]
 		opts.append({"k": str(i + 1), "label": it["label"], "fn": it["fn"], "dis": it.get("dis", false), "right": it.get("right", "")})
 	opts.append_array(extra)
-	opts.append({"k": "L", "label": "LEAVE", "esc": true, "fn": back})
+	opts.append({"k": "L", "label": "LEAVE", "fn": back})
 	show_screen({"title": title, "body": body, "opts": opts, "col": true})
 
 
@@ -391,6 +406,15 @@ func clear_log() -> void:
 	_log.clear()
 
 
+## The front three party rows are bright, the back three dim.
+func party_row_color(row: int) -> String:
+	return "eadfc4" if row < 3 else "9c947f"
+
+
+func status_color(st: String, ok_color: String) -> String:
+	return {"OK": ok_color, "POISON": "93c07e", "ASLEEP": "8bace6"}.get(st, "d6563f")
+
+
 func render_party() -> void:
 	var ps := Game.party_chars()
 	if ps.is_empty():
@@ -400,9 +424,9 @@ func render_party() -> void:
 		"[cell][color=#9c947f]  AC[/color][/cell][cell][color=#9c947f]    HITS[/color][/cell][cell][color=#9c947f]   STATUS[/color][/cell]"
 	for i in ps.size():
 		var c: Character = ps[i]
-		var col := "eadfc4" if i < 3 else "9c947f"
+		var col := party_row_color(i)
 		var st := c.status
-		var sc: String = {"OK": col, "POISON": "93c07e", "ASLEEP": "8bace6"}.get(st, "d6563f")
+		var sc := status_color(st, col)
 		t += "[cell][color=#%s]%d[/color][/cell][cell][color=#%s]%s%s[/color][/cell][cell][color=#%s]%s-%s[/color][/cell]" % [col, i + 1, col, esc(c.name), " &" if c.honor else "", col, c.align.substr(0, 1), c.cdata()["ab"]]
 		t += "[cell][color=#%s]%4d[/color][/cell][cell][color=#%s]%8s[/color][/cell][cell][color=#%s]   %s[/color][/cell]" % [col, c.ac(), col, "%d/%d" % [c.hp, c.maxhp], sc, st]
 	_party.text = t + "[/table]"
@@ -410,7 +434,7 @@ func render_party() -> void:
 
 func sheet(c: Character) -> String:
 	var nx := Data.xp_needed(c.cls, c.lvl)
-	var t := "[color=#e3a33f]%s  L %d  %s-%s-%s[/color]\n" % [esc(c.name), c.lvl, c.align.substr(0, 1), c.race, c.cls]
+	var t := "[color=#e3a33f]%s  L %d  %s-%s-%s  %s[/color]\n" % [esc(c.name), c.lvl, c.align.substr(0, 1), c.race, c.cls, c.sex.substr(0, 1)]
 	t += "[table=3]"
 	for st in Data.STATS:
 		t += "[cell][color=#9c947f]%s[/color] %d   [/cell]" % [Data.STAT_NAMES[st], c.stats[st]]

@@ -3,6 +3,13 @@ extends RefCounted
 ## Character screens: inspecting (spell books, equip, drop, trade, identify, camp spells),
 ## the Training Grounds, character creation, and class changes.
 
+const TRAINING_IMAGE := "res://assets/images/training.webp"
+const PORTRAIT_THUMB := 126.0
+const PORTRAIT_COLUMNS := 4
+const PORTRAITS_PER_PAGE := 12
+const RACE_POPUP_WIDTH := 340.0
+const STAT_INFO_HINT := "Point at or tap an (i) to see what a statistic does."
+
 var ui
 
 
@@ -15,7 +22,7 @@ func inspect(c: Character, from: String, back: Callable) -> void:
 	var camp := from == "camp"
 	var can := camp or from == "tavern"
 	var again := inspect.bind(c, from, back)
-	ui.show_screen({"title": "Inspect", "body": ui.sheet(c), "opts": [
+	ui.show_screen({"title": "Inspect", "body": ui.sheet(c), "portrait": c.portrait_path(), "opts": [
 		{"k": "R", "label": "READ", "fn": read_books.bind(c, again)},
 		{"k": "D", "label": "DROP", "hide": not can, "fn": drop_item.bind(c, again)},
 		{"k": "P", "label": "POOL GOLD", "hide": not can, "fn": _pool.bind(c, again)},
@@ -24,7 +31,7 @@ func inspect(c: Character, from: String, back: Callable) -> void:
 		{"k": "T", "label": "TRADE", "hide": not can or Game.party.size() < 2, "fn": trade.bind(c, again)},
 		{"k": "S", "label": "SPELL", "hide": not camp, "dis": not c.can_act(), "fn": camp_spell.bind(c, again)},
 		{"k": "U", "label": "USE", "hide": not camp, "dis": not c.can_act(), "fn": camp_use.bind(c, again)},
-		{"k": "L", "label": "LEAVE", "esc": true, "def": true, "fn": back},
+		{"k": "L", "label": "LEAVE", "fn": back},
 	]})
 
 
@@ -118,7 +125,7 @@ func equip_flow(c: Character, done: Callable, slots: Array) -> void:
 	var opts := []
 	for i in own.size():
 		opts.append({"k": str(i + 1), "label": c.item_name(own[i]), "right": "NOW" if own[i]["eq"] else "", "fn": _equip_one.bind(c, own[i], slot, next)})
-	opts.append({"k": "Enter", "label": "NONE", "def": true, "fn": func(): _unequip(c, slot); next.call()})
+	opts.append({"k": "Enter", "label": "NONE", "fn": func(): _unequip(c, slot); next.call()})
 	ui.show_screen({"title": "Equip " + nm, "body": "%s: choose a %s, or none." % [ui.esc(c.name), nm], "col": true, "opts": opts})
 
 
@@ -140,7 +147,7 @@ func _equip_one(c: Character, it: Dictionary, slot: String, next: Callable) -> v
 		it["cursed"] = true
 		it["bad"] = true
 		it["known"] = true
-		Game.say("THE %s REJECTS %s'S ALIGNMENT. IT BINDS ITSELF TO HIM AND SAPS HIS STRENGTH." % [c.item_name(it), c.name], "hit")
+		Game.say("THE %s REJECTS %s'S ALIGNMENT. IT BINDS ITSELF TO %s AND SAPS %s STRENGTH." % [c.item_name(it), c.name, c.him(), c.his()], "hit")
 	next.call()
 
 
@@ -153,8 +160,8 @@ func trade(c: Character, back: Callable) -> void:
 
 
 func _trade_gold(c: Character, o: Character, back: Callable) -> void:
-	ui.show_screen({"title": "Trade gold", "body": "%s has %d gold. How much to give %s? Press ENTER for none." % [ui.esc(c.name), c.gold, ui.esc(o.name)],
-		"input": {"ph": "AMOUNT", "max": 7, "fn": func(v): _give_gold(c, o, v, back)}, "opts": [{"k": "Escape", "label": "LEAVE", "esc": true, "fn": back}]})
+	ui.show_screen({"title": "Trade gold", "body": "%s has %d gold. How much to give %s? Leave it blank for none." % [ui.esc(c.name), c.gold, ui.esc(o.name)],
+		"input": {"ph": "AMOUNT", "max": 7, "fn": func(v): _give_gold(c, o, v, back)}, "opts": [{"k": "Escape", "label": "LEAVE", "fn": back}]})
 
 
 func _give_gold(c: Character, o: Character, v: String, back: Callable) -> void:
@@ -242,19 +249,18 @@ func roster_pick(title: String, filter: Callable, fn: Callable, back: Callable, 
 
 # ---------- Training Grounds ----------
 func training() -> void:
-	if not Game.party.is_empty():
-		Game.say("THE PARTY DISBANDS.")
-	for c in Game.party_chars():
-		c.loc = "CASTLE"
-	Game.party.clear()
+	ui.place_image = TRAINING_IMAGE
 	Game.save_game()
+	var count := "ROSTER: %d OF %d" % [Game.roster.size(), Game.MAX_ROSTER]
+	if Game.roster_full():
+		count += "\nThe roster is full. Delete a character to make room for a new one."
 	ui.show_screen({"title": "Training Grounds", "where": "Training Grounds", "view": "train",
-		"body": ui.flav("Youngsters hack at wooden posts, and most of the battle cries end in yelps when the blades bounce back."),
+		"body": ui.flav("Youngsters hack at wooden posts, and most of the battle cries end in yelps when the blades bounce back.") + "\n\n" + count,
 		"opts": [
-			{"k": "C", "label": "CREATE A CHARACTER", "fn": create_name},
+			{"k": "C", "label": "CREATE A CHARACTER", "dis": Game.roster_full(), "fn": create_name},
 			{"k": "I", "label": "INSPECT A CHARACTER", "fn": func(): roster_pick("Inspect whom?", func(_c): return true, train_char, training)},
 			{"k": "R", "label": "ROSTER OF CHARACTERS", "fn": show_roster},
-			{"k": "L", "label": "LEAVE", "esc": true, "fn": ui.town.edge_of_town},
+			{"k": "L", "label": "LEAVE", "fn": ui.town.castle},
 		]})
 
 
@@ -267,15 +273,17 @@ func show_roster() -> void:
 
 func train_char(c: Character) -> void:
 	var home := c.loc == "CASTLE"
-	ui.show_screen({"title": c.name, "view": "train", "body": ui.sheet(c) + ("" if home else "\n" + ui.flav("This adventurer is OUT in the Maze. Bring them home first.")), "opts": [
+	ui.show_screen({"title": c.name, "view": "train", "portrait": c.portrait_path(), "body": ui.sheet(c) + ("" if home else "\n" + ui.flav("This adventurer is OUT in the Maze. Bring them home first.")), "opts": [
 		{"k": "R", "label": "READ", "fn": read_books.bind(c, train_char.bind(c))},
 		{"k": "D", "label": "DELETE", "dis": not home, "fn": func(): ui.yesno("Retire to Club Wiz?", "%s will pack up and leave the game forever. Delete?" % ui.esc(c.name), _delete.bind(c), train_char.bind(c))},
 		{"k": "C", "label": "CHANGE CLASS", "dis": not home or not c.is_alive(), "fn": change_class.bind(c)},
-		{"k": "L", "label": "LEAVE", "esc": true, "def": true, "fn": training},
+		{"k": "P", "label": "CHANGE PORTRAIT", "fn": change_portrait.bind(c)},
+		{"k": "L", "label": "LEAVE", "fn": training},
 	]})
 
 
 func _delete(c: Character) -> void:
+	Game.party.erase(c.id)
 	Game.roster.erase(c)
 	Game.save_game()
 	Game.say("%s RETIRES TO CLUB WIZ." % c.name)
@@ -304,8 +312,8 @@ func _do_change(c: Character, k: String) -> void:
 
 # ---------- character creation ----------
 func create_name() -> void:
-	ui.show_screen({"title": "Create a character", "view": "train", "body": "Type the new adventurer's name and press ENTER.",
-		"input": {"ph": "NAME", "max": 15, "fn": _name_entered}, "opts": [{"k": "Escape", "label": "LEAVE", "esc": true, "fn": training}]})
+	ui.show_screen({"title": "Create a character", "view": "train", "body": "Type the new adventurer's name, then choose OK.",
+		"input": {"ph": "NAME", "max": 15, "fn": _name_entered}, "opts": [{"k": "Escape", "label": "LEAVE", "fn": training}]})
 
 
 func _name_entered(v: String) -> void:
@@ -317,13 +325,75 @@ func _name_entered(v: String) -> void:
 	create_race(v)
 
 
-func create_race(nm: String) -> void:
-	var items := []
+## Picking a race opens its popup, and the popup's button moves on to alignment.
+func create_race(nm: String, selected := "") -> void:
+	var list := VBoxContainer.new()
 	for r in Data.RACES:
-		var st := " ".join(Data.STATS.map(func(s): return str(Data.RACES[r][s])))
-		items.append({"label": r, "right": st, "fn": create_align.bind(nm, r)})
-	ui.choose_list("%s: choose a race" % nm, ui.flav("Humans are steady, elves clever and pious, dwarves strong, gnomes pious and agile, hobbits agile and very lucky.") +
-		"\n[color=#9c947f]STR I.Q. PIE VIT AGI LUK[/color]", items, training)
+		var btn := _race_button(r, create_race.bind(nm, r))
+		btn.name = r
+		if r == selected:
+			btn.add_theme_stylebox_override("normal", UiStyle.box(UiStyle.C_STONE2, UiStyle.C_TORCH, 7))
+		list.add_child(btn)
+	var leave := _race_button("LEAVE", training)
+	leave.name = "Leave"
+	list.add_child(leave)
+	var s := {"title": "%s: choose a race" % nm, "view": "train", "widget": list, "body": "Pick a race to see its base statistics."}
+	if selected != "":
+		s["side"] = _race_popup(nm, selected)
+	ui.show_screen(s)
+
+
+func _race_button(text: String, fn: Callable) -> Button:
+	var btn := Button.new()
+	btn.text = text
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.pressed.connect(fn)
+	return btn
+
+
+func _race_popup(nm: String, race: String) -> Control:
+	var box := VBoxContainer.new()
+	box.custom_minimum_size.x = RACE_POPUP_WIDTH
+	box.add_theme_constant_override("separation", 10)
+	var blurb := Label.new()
+	blurb.text = Data.RACE_TEXT[race]
+	blurb.add_theme_color_override("font_color", UiStyle.C_TORCH)
+	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(blurb)
+	var heading := Label.new()
+	heading.text = "Base Stats"
+	box.add_child(heading)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	box.add_child(grid)
+	var explain := Label.new()
+	explain.name = "Explain"
+	explain.text = STAT_INFO_HINT
+	explain.add_theme_color_override("font_color", UiStyle.C_DIM)
+	explain.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	explain.custom_minimum_size.y = 72  # room for the longest text, so the popup does not jump
+	for st in Data.STATS:
+		var stat := Label.new()
+		stat.text = "%s: %d" % [Data.STAT_INFO[st][0], Data.RACES[race][st]]
+		stat.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_child(stat)
+		var info := Button.new()
+		info.name = "Info_" + st
+		info.text = "(i)"
+		info.flat = true
+		info.focus_mode = Control.FOCUS_NONE
+		var show_text := func(): explain.text = Data.STAT_INFO[st][1]
+		info.mouse_entered.connect(show_text)
+		info.pressed.connect(show_text)
+		info.mouse_exited.connect(func(): explain.text = STAT_INFO_HINT)
+		grid.add_child(info)
+	box.add_child(explain)
+	var choose := _race_button("CHOOSE " + race, create_align.bind(nm, race))
+	choose.name = "Choose"
+	choose.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(choose)
+	return box
 
 
 func create_align(nm: String, race: String) -> void:
@@ -331,14 +401,14 @@ func create_align(nm: String, race: String) -> void:
 		{"k": "G", "label": "GOOD", "fn": create_stats.bind(nm, race, "GOOD")},
 		{"k": "N", "label": "NEUTRAL", "fn": create_stats.bind(nm, race, "NEUTRAL")},
 		{"k": "E", "label": "EVIL", "fn": create_stats.bind(nm, race, "EVIL")},
-		{"k": "L", "label": "LEAVE", "esc": true, "fn": training},
+		{"k": "L", "label": "LEAVE", "fn": training},
 	]})
 
 
 ## Bonus-point allocation. State lives in one dictionary so the button callbacks can change it.
 func create_stats(nm: String, race: String, al: String) -> void:
 	var pts := Dice.rnd(5, 9) + (10 if randf() < 0.12 else 0) + (10 if randf() < 0.02 else 0)
-	var b := {"nm": nm, "race": race, "al": al, "st": Data.RACES[race].duplicate(), "pts": pts, "max": pts, "sel": 0}
+	var b := {"nm": nm, "race": race, "al": al, "st": Data.RACES[race].duplicate(), "pts": pts, "max": pts}
 	_draw_stats(b)
 
 
@@ -353,29 +423,20 @@ func _adjust(b: Dictionary, stat: String, d: int) -> void:
 	_draw_stats(b)
 
 
-func _move_sel(b: Dictionary, d: int) -> void:
-	b["sel"] = (b["sel"] + d + 6) % 6
-	_draw_stats(b)
-
-
 func _draw_stats(b: Dictionary) -> void:
 	var st: Dictionary = b["st"]
 	var el := Character.eligible(st, b["al"])
 	var grid := GridContainer.new()
-	grid.columns = 5
+	grid.columns = 4
 	grid.add_theme_constant_override("h_separation", 10)
 	for i in Data.STATS.size():
 		var s: String = Data.STATS[i]
-		var arrow := Label.new()
-		arrow.text = "►" if i == b["sel"] else " "
 		var lbl := Label.new()
 		lbl.text = Data.STAT_NAMES[s]
 		var val := Label.new()
 		val.text = str(st[s])
-		for l in [arrow, lbl, val]:
-			if i == b["sel"]:
-				l.add_theme_color_override("font_color", ui.C_TORCH)
-			grid.add_child(l)
+		grid.add_child(lbl)
+		grid.add_child(val)
 		for spec in [["−", -1], ["+", 1]]:
 			var btn := Button.new()
 			btn.text = spec[0]
@@ -384,34 +445,82 @@ func _draw_stats(b: Dictionary) -> void:
 			btn.pressed.connect(_adjust.bind(b, s, spec[1]))
 			grid.add_child(btn)
 	var body := "BONUS POINTS: [color=#e3a33f]%d[/color] of %d\nCLASSES: [color=#93c07e]%s[/color]\n" % [b["pts"], b["max"], "  ".join(el) if not el.is_empty() else "NONE YET"]
-	body += ui.flav("Arrow keys move and adjust. Spend every bonus point, then choose a class.")
-	var sel_stat: String = Data.STATS[b["sel"]]
+	body += ui.flav("Spend every bonus point, then choose a class.")
 	ui.show_screen({"title": "%s: %s-%s" % [b["nm"], b["al"].substr(0, 1), b["race"]], "view": "train", "widget": grid, "body": body,
-		"keys": {"Up": _move_sel.bind(b, -1), "Down": _move_sel.bind(b, 1), "Enter": _move_sel.bind(b, 1),
-			"Right": _adjust.bind(b, sel_stat, 1), "+": _adjust.bind(b, sel_stat, 1), "=": _adjust.bind(b, sel_stat, 1),
-			"Left": _adjust.bind(b, sel_stat, -1), "-": _adjust.bind(b, sel_stat, -1)},
 		"opts": [
 			{"k": "C", "label": "CHOOSE CLASS", "dis": b["pts"] > 0 or el.is_empty(), "fn": _choose_class.bind(b, el)},
 			{"k": "R", "label": "REROLL BONUS", "fn": create_stats.bind(b["nm"], b["race"], b["al"])},
-			{"k": "Q", "label": "QUIT", "esc": true, "fn": training},
+			{"k": "Q", "label": "QUIT", "fn": training},
 		]})
 
 
 func _choose_class(b: Dictionary, el: Array) -> void:
 	var items := []
 	for k in el:
-		items.append({"label": k, "fn": _confirm_char.bind(b, k)})
+		items.append({"label": k, "fn": create_sex.bind(b, k)})
 	ui.choose_list("Choose a class", "", items, _draw_stats.bind(b))
+
+
+func create_sex(b: Dictionary, k: String) -> void:
+	ui.show_screen({"title": "%s: male or female?" % b["nm"], "view": "train", "opts": [
+		{"k": "M", "label": "MALE", "fn": create_portrait.bind(b, k, "MALE")},
+		{"k": "F", "label": "FEMALE", "fn": create_portrait.bind(b, k, "FEMALE")},
+		{"k": "L", "label": "LEAVE", "fn": func(): _choose_class(b, Character.eligible(b["st"], b["al"]))},
+	]})
+
+
+func create_portrait(b: Dictionary, k: String, sex: String, page := 0) -> void:
+	_portrait_picker(b["nm"], sex, page, _pick_portrait.bind(b, k, sex), create_sex.bind(b, k))
+
+
+func change_portrait(c: Character, page := 0) -> void:
+	_portrait_picker(c.name, c.sex, page, _portrait_changed.bind(c), train_char.bind(c))
+
+
+func _portrait_changed(portrait: String, c: Character) -> void:
+	c.portrait = portrait
+	Game.save_game()
+	train_char(c)
+
+
+## pick is called with the chosen portrait's name.
+func _portrait_picker(nm: String, sex: String, page: int, pick: Callable, back: Callable) -> void:
+	var grid := GridContainer.new()
+	grid.columns = PORTRAIT_COLUMNS
+	var all: Array = Data.portraits(sex)
+	var pages := ceili(float(all.size()) / PORTRAITS_PER_PAGE)
+	var names: Array = all.slice(page * PORTRAITS_PER_PAGE, (page + 1) * PORTRAITS_PER_PAGE)
+	for portrait in names:
+		var btn := Button.new()
+		btn.icon = load(Character.PORTRAIT_FILE % portrait)
+		btn.expand_icon = true
+		btn.custom_minimum_size = Vector2.ONE * PORTRAIT_THUMB
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.pressed.connect(pick.bind(portrait))
+		grid.add_child(btn)
+	ui.show_screen({"title": "%s: choose a portrait" % nm, "view": "train", "widget": grid,
+		"body": "Pick a portrait." + ("  Page %d of %d." % [page + 1, pages] if pages > 1 else ""),
+		"opts": [
+			{"k": "N", "label": "NEXT PAGE", "hide": page + 1 >= pages, "fn": _portrait_picker.bind(nm, sex, page + 1, pick, back)},
+			{"k": "B", "label": "BACK A PAGE", "hide": page == 0, "fn": _portrait_picker.bind(nm, sex, page - 1, pick, back)},
+			{"k": "L", "label": "LEAVE", "fn": back},
+		]})
+
+
+func _pick_portrait(portrait: String, b: Dictionary, k: String, sex: String) -> void:
+	b["sex"] = sex
+	b["portrait"] = portrait
+	_confirm_char(b, k)
 
 
 func _confirm_char(b: Dictionary, k: String) -> void:
 	var st: Dictionary = b["st"]
 	var line := " · ".join(Data.STATS.map(func(s): return "%s %d" % [Data.STAT_NAMES[s], st[s]]))
-	ui.yesno("Keep this character?", "%s — %s-%s-%s\n%s" % [ui.esc(b["nm"]), b["al"].substr(0, 1), b["race"], k, line], _make.bind(b, k), _draw_stats.bind(b))
+	ui.yesno("Keep this character?", "%s — %s-%s-%s, %s\n%s" % [ui.esc(b["nm"]), b["al"].substr(0, 1), b["race"], k, b["sex"], line], _make.bind(b, k), _draw_stats.bind(b), Character.PORTRAIT_FILE % b["portrait"])
 
 
 func _make(b: Dictionary, k: String) -> void:
-	var c := Game.make_char(b["nm"], b["race"], b["al"], b["st"], k)
+	var c := Game.make_char(b["nm"], b["race"], b["al"], b["st"], k, b["sex"], b["portrait"])
 	Game.save_game()
 	Game.say("%s JOINS THE ROSTER. (%d GOLD)" % [c.name, c.gold], "ok")
 	training()

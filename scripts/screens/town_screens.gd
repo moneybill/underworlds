@@ -3,6 +3,11 @@ extends RefCounted
 ## The Castle and its shops: Gilgamesh's Tavern, Boltac's Trading Post, the Temple of Cant,
 ## the Adventurer's Inn, the Edge of Town and the Utilities.
 
+const TAVERN_IMAGE := "res://assets/images/tavern.webp"
+const BOLTAC_IMAGE := "res://assets/images/boltac.webp"
+const INN_IMAGE := "res://assets/images/inn.webp"
+const TEMPLE_IMAGE := "res://assets/images/temple.webp"
+
 var ui
 
 
@@ -12,22 +17,27 @@ func _init(root) -> void:
 
 # ---------- Castle ----------
 func castle() -> void:
+	ui.place_image = ""
 	Game.mode = "castle"
 	Game.save_game()
 	var has_party := not Game.party.is_empty()
 	var body := "Banners bearing your names hang from the battlements. Trebor's Elite Guard drinks free at Gilgamesh's." if Game.won \
 		else "Trebor's castle rises over the maze he claims he built on purpose. " + ("Your party waits by the gate." if has_party else "No party has been formed.")
-	ui.show_screen({"title": "Castle", "where": "Castle", "view": "castle", "body": ui.flav(body), "opts": [
+	var need_party := "Form a party at Gilgamesh's Tavern first."
+	ui.show_screen({"title": "Castle", "where": "Castle", "view": "castle", "map": true, "body": ui.flav(body), "opts": [
 		{"k": "G", "label": "GILGAMESH'S TAVERN", "fn": tavern},
-		{"k": "A", "label": "ADVENTURER'S INN", "dis": not has_party, "fn": inn},
-		{"k": "B", "label": "BOLTAC'S TRADING POST", "dis": not has_party, "fn": boltac},
-		{"k": "T", "label": "TEMPLE OF CANT", "dis": not has_party, "fn": temple},
+		{"k": "A", "label": "ADVENTURER'S INN", "dis": not has_party, "why": need_party, "fn": inn},
+		{"k": "B", "label": "BOLTAC'S TRADING POST", "dis": not has_party, "why": need_party, "fn": boltac},
+		{"k": "T", "label": "TEMPLE OF CANT", "dis": not has_party, "why": need_party, "fn": temple},
+		{"k": "R", "label": "TRAINING GROUNDS", "fn": ui.chars.training},
+		{"k": "M", "label": "MAZE", "dis": Game.living().is_empty(), "why": need_party, "fn": ui.mz.enter_maze},
 		{"k": "E", "label": "EDGE OF TOWN", "fn": edge_of_town},
 	]})
 
 
 # ---------- Gilgamesh's Tavern ----------
 func tavern() -> void:
+	ui.place_image = TAVERN_IMAGE
 	var ps := Game.party_chars()
 	var opts := [
 		{"k": "A", "label": "ADD", "dis": ps.size() >= 6, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
@@ -36,9 +46,9 @@ func tavern() -> void:
 	]
 	for i in ps.size():
 		opts.append({"k": str(i + 1), "label": ps[i].name, "fn": ui.chars.inspect.bind(ps[i], "tavern", tavern)})
-	opts.append({"k": "L", "label": "LEAVE", "esc": true, "fn": castle})
+	opts.append({"k": "L", "label": "LEAVE", "fn": castle})
 	ui.show_screen({"title": "Gilgamesh's Tavern", "where": "Gilgamesh's Tavern", "view": "tavern", "opts": opts,
-		"body": ui.flav("Smoke hangs over the scarred tables and a haunch of boar turns over the fire. Small groups of adventurers talk in low voices.") + "\n\nPress a party number to inspect that member."})
+		"body": ui.flav("Smoke hangs over the scarred tables and a haunch of boar turns over the fire. Small groups of adventurers talk in low voices.") + "\n\nChoose a party member to inspect them."})
 
 
 func _can_add(c: Character) -> bool:
@@ -55,7 +65,7 @@ func _add(c: Character) -> void:
 func _remove(c: Character) -> void:
 	Game.party.erase(c.id)
 	Game.save_game()
-	Game.say("%s WANDERS BACK TO HIS DRINK." % c.name)
+	Game.say("%s WANDERS BACK TO %s DRINK." % [c.name, c.his()])
 	tavern()
 
 
@@ -68,6 +78,7 @@ func _divvy() -> void:
 
 # ---------- Boltac's Trading Post ----------
 func boltac() -> void:
+	ui.place_image = BOLTAC_IMAGE
 	ui.pick_member("Boltac's: who will be served?", castle, shop)
 
 
@@ -80,7 +91,7 @@ func shop(c: Character) -> void:
 			{"k": "U", "label": "UNCURSE", "fn": fee_service.bind(c, "U")},
 			{"k": "I", "label": "IDENTIFY", "fn": fee_service.bind(c, "I")},
 			{"k": "P", "label": "POOL GOLD", "fn": func(): Game.pool_gold(c); shop(c)},
-			{"k": "L", "label": "LEAVE", "esc": true, "fn": castle},
+			{"k": "L", "label": "LEAVE", "fn": castle},
 		]})
 
 
@@ -182,6 +193,7 @@ func _tithe(c: Character) -> int:
 
 
 func temple() -> void:
+	ui.place_image = TEMPLE_IMAGE
 	var items := []
 	for c in Game.party_chars():
 		if _tithe(c) > 0:
@@ -237,6 +249,7 @@ func _temple_heal(payer: Character, c: Character) -> void:
 
 # ---------- Adventurer's Inn ----------
 func inn() -> void:
+	ui.place_image = INN_IMAGE
 	ui.pick_member("Adventurer's Inn: who checks in?", castle, inn_rooms, func(c): return c.is_alive() and c.status != "PARALYZED")
 
 
@@ -279,7 +292,7 @@ func edge_of_town() -> void:
 			{"k": "M", "label": "MAZE", "dis": not any_alive, "fn": ui.mz.enter_maze},
 			{"k": "T", "label": "TRAINING GROUNDS", "fn": ui.chars.training},
 			{"k": "U", "label": "UTILITIES", "fn": utilities},
-			{"k": "C", "label": "CASTLE", "esc": true, "fn": castle},
+			{"k": "C", "label": "CASTLE", "fn": castle},
 			{"k": "Q", "label": "LEAVE GAME", "fn": func(): Game.save_game(); ui.get_tree().quit()},
 		]})
 
@@ -288,13 +301,13 @@ func utilities() -> void:
 	ui.show_screen({"title": "Utilities", "where": "Utilities", "view": "edge", "opts": [
 		{"k": "C", "label": "CHANGE NAME", "fn": func(): ui.chars.roster_pick("Rename whom?", func(_c): return true, _rename, utilities)},
 		{"k": "R", "label": "RESTART AN \"OUT\" PARTY", "dis": Game.outs.is_empty() or not Game.party.is_empty(), "fn": restart_out},
-		{"k": "L", "label": "LEAVE", "esc": true, "fn": edge_of_town},
+		{"k": "L", "label": "LEAVE", "fn": edge_of_town},
 	]})
 
 
 func _rename(c: Character) -> void:
-	ui.show_screen({"title": "Rename %s" % c.name, "view": "edge", "body": "Type the new name and press ENTER.",
-		"input": {"ph": "NEW NAME", "fn": func(v): _do_rename(c, v)}, "opts": [{"k": "Escape", "label": "LEAVE", "esc": true, "fn": utilities}]})
+	ui.show_screen({"title": "Rename %s" % c.name, "view": "edge", "body": "Type the new name, then choose OK.",
+		"input": {"ph": "NEW NAME", "fn": func(v): _do_rename(c, v)}, "opts": [{"k": "Escape", "label": "LEAVE", "fn": utilities}]})
 
 
 func _do_rename(c: Character, v: String) -> void:

@@ -12,7 +12,25 @@ const RACES := {
 	"GNOME":  {"str": 7,  "iq": 7,  "pie": 10, "vit": 8,  "agi": 10, "luk": 7},
 	"HOBBIT": {"str": 5,  "iq": 7,  "pie": 7,  "vit": 6,  "agi": 10, "luk": 15},
 }
+const RACE_TEXT := {
+	"HUMAN": "Humans are steady",
+	"ELF": "Elves are clever and pious",
+	"DWARF": "Dwarves are strong",
+	"GNOME": "Gnomes are pious and agile",
+	"HOBBIT": "Hobbits are agile and very lucky",
+}
+## Each statistic's full name and what it does, for the race screen.
+const STAT_INFO := {
+	"str": ["Strength", "Strength affects your skill and damage in combat."],
+	"iq": ["Intelligence", "Intelligence influences your ability to cast magic spells."],
+	"pie": ["Piety", "Piety influences your ability to cast priest spells."],
+	"vit": ["Vitality", "Vitality affects your ability to withstand damage."],
+	"agi": ["Agility", "Agility helps you avoid attacks and to open treasure chests."],
+	"luk": ["Luck", "Luck comes to your aid in many mysterious ways."],
+}
 const ALIGNS := ["GOOD", "NEUTRAL", "EVIL"]
+## How many portraits a new character can choose from, by sex: assets/images/portraits/male_1.webp and on.
+const PORTRAIT_COUNTS := {"MALE": 45, "FEMALE": 45}
 
 ## al: allowed alignment initials. M / P: [first character level that learns that school, levels per extra spell level].
 const CLASSES := {
@@ -172,3 +190,11 @@ func spells_at(school: String, lvl: int) -> Array:
 
 func xp_needed(cls_name: String, lvl: int) -> int:
 	return int(round(CLASSES[cls_name]["xp"] * pow(1.72, lvl - 1)))
+
+
+## The names of the portraits for one sex, as Character.portrait stores them.
+func portraits(sex: String) -> Array:
+	var names := []
+	for i in PORTRAIT_COUNTS[sex]:
+		names.append("%s_%d" % [sex.to_lower(), i + 1])
+	return names

@@ -34,7 +34,7 @@ func camp() -> void:
 		opts.append({"k": str(i + 1), "label": ps[i].name, "fn": ui.chars.inspect.bind(ps[i], "camp", camp)})
 	opts.append({"k": "R", "label": "REORDER", "fn": reorder.bind([])})
 	opts.append({"k": "E", "label": "EQUIP", "fn": _equip_all.bind(0)})
-	opts.append({"k": "L", "label": "LEAVE CAMP", "def": true, "esc": true, "fn": maze})
+	opts.append({"k": "L", "label": "LEAVE CAMP", "fn": maze})
 	ui.show_screen({"title": "Camp", "where": "Maze · Level %d" % Game.pos["z"], "view": "camp", "opts": opts,
 		"body": ui.flav("Guards are posted and the fire is lit. No monster will trouble you while you stay in camp.")})
 
@@ -75,9 +75,8 @@ func maze() -> void:
 	if Game.latumapic:
 		fx += "LATUMAPIC · "
 	ui.show_screen({"title": "In darkness" if dark else ("Lit corridor" if Game.light > 0 else "The Maze"), "where": "Maze · Level %d" % p["z"],
-		"view": "maze", "pad": true, "body": fx + "W FORWARD · A/D TURN · X ABOUT",
-		"keys": {"W": forward, "F": forward, "Up": forward, "A": turn.bind(3), "Left": turn.bind(3), "D": turn.bind(1), "R": turn.bind(1),
-			"Right": turn.bind(1), "X": turn.bind(2), "Down": turn.bind(2)},
+		"view": "maze", "pad": true, "body": fx + "USE THE ARROWS TO MOVE",
+		"moves": {"W": forward, "A": turn.bind(3), "D": turn.bind(1), "X": turn.bind(2)},
 		"opts": [
 			{"k": "C", "label": "CAMP", "fn": camp},
 			{"k": "S", "label": "STATUS", "fn": _status},

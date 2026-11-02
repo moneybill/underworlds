@@ -30,7 +30,7 @@ func run() -> int:
 	main = load("res://scenes/main.tscn").instantiate()
 	get_tree().root.add_child(main)
 	await get_tree().process_frame
-	check(main.scr.get("title", "") == "Welcome to the Proving Grounds", "welcome screen on a fresh roster")
+	check(main.scr.get("title", "") == "Welcome to the Underworlds", "welcome screen on a fresh roster")
 
 	# --- a Hawkwind party ---
 	var specs := [["DERF", "DWARF", "GOOD", {"str": 11, "agi": 9}, "FIGHTER"], ["THOMAS", "HUMAN", "GOOD", {"str": 12}, "FIGHTER"],
@@ -50,13 +50,23 @@ func run() -> int:
 	print("creation screens")
 	main.chars.create_name()
 	main._on_input_submitted("NEWBIE")
-	press("1")  # HUMAN
+	main.scr["widget"].get_node("HUMAN").pressed.emit()
+	main.scr["side"].find_child("Choose", true, false).pressed.emit()
 	press("G")
 	check(main.scr["title"].begins_with("NEWBIE"), "bonus point screen")
+	check(not main.has_method("_input"), "the game takes no keyboard commands")
 	for i in 30:
-		main.scr["keys"]["Right"].call()
-		main.scr["keys"]["Down"].call()
+		main.scr["widget"].get_child(i % 6 * 4 + 3).pressed.emit()  # each row: name, value, -, +
+	check(main.scr["body"].contains("BONUS POINTS: [color=#e3a33f]0[/color]"), "the + buttons spend every bonus point")
+	main.scr["widget"].get_child(3).pressed.emit()
+	main.scr["widget"].get_child(2).pressed.emit()
+	check(main.scr["body"].contains("BONUS POINTS: [color=#e3a33f]1[/color]"), "the - buttons give a point back")
 	press("Q")
+	main.chars.create_name()
+	main._entry.text = "buttoned"
+	_ok_button().pressed.emit()
+	check(main.scr["title"] == "BUTTONED: choose a race", "the OK button submits typed text")
+	main.scr["widget"].get_node("Leave").pressed.emit()
 
 	# --- town ---
 	print("town")
@@ -91,9 +101,38 @@ func run() -> int:
 	press("Y")
 	party[5].status = "DEAD"
 	main.town.temple()
+	check(main._backdrop.visible, "the temple shows its painting")
+	var temple_art: Texture2D = main._backdrop.texture
+	check(temple_art != null and absf(float(temple_art.get_width()) / temple_art.get_height() - 16.0 / 9.0) < 0.001, "the temple painting is 16:9")
 	press("1")
+	check(main._backdrop.visible, "the tithe question keeps the painting")
 	press("1")  # payer
 	check(main.scr["title"] == "Temple of Cant", "temple tithe resolves (bind order)")
+	check(main._backdrop.visible, "the temple's answer keeps the painting")
+	press("Enter")
+	press("L")
+	check(main.scr["title"] == "Castle" and not main._backdrop.visible and main.town_map.visible, "leaving the temple returns to the map")
+	main.town.edge_of_town()
+	check(not main._backdrop.visible and main._view_box.visible and main._header.visible, "other screens keep the normal layout")
+	main.town.tavern()
+	var tavern_art: Texture2D = main._backdrop.texture
+	check(main._backdrop.visible and tavern_art != temple_art, "the tavern shows its own painting")
+	check(tavern_art != null and absf(float(tavern_art.get_width()) / tavern_art.get_height() - 16.0 / 9.0) < 0.001, "the tavern painting is 16:9")
+	main.chars.roster_pick("Add whom?", main.town._can_add, main.town._add, main.town.tavern)
+	check(main._backdrop.texture == tavern_art, "adding a member keeps the tavern painting")
+	press("L")
+	press("R")
+	check(main._backdrop.texture == tavern_art, "removing a member keeps the tavern painting")
+	press("L")
+	press("1")
+	check(main.scr["title"] == "Inspect" and main._backdrop.texture == tavern_art, "inspecting keeps the tavern painting")
+	press("R")
+	check(main._backdrop.texture == tavern_art, "the spell books keep the tavern painting")
+	press("Enter")
+	press("L")
+	check(main.scr["title"] == "Gilgamesh's Tavern", "inspect returns to the tavern")
+	press("L")
+	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving the tavern clears its painting")
 	party[5].status = "OK"
 	party[5].hp = party[5].maxhp
 	party[0].xp = 5000
@@ -144,10 +183,8 @@ func run() -> int:
 				press("O")
 				press("4")
 			continue
-		var keys: Dictionary = main.scr.get("keys", {})
-		if keys.has("W"):
-			var k: String = ["W", "W", "W", "A", "D"][randi() % 5]
-			keys[k].call()
+		if main.scr.has("moves"):
+			main._pad_press(["W", "W", "W", "A", "D"][randi() % 5])
 			steps += 1
 			for c in g.party_chars():
 				if c.hp < c.maxhp / 2 and c.is_alive():
@@ -222,5 +259,365 @@ func run() -> int:
 	g.load_game()
 	check(g.roster.size() == n, "save/load keeps the roster")
 
+	await _test_town_map(g)
+	await _test_start_flow(g, g.roster.size())
+
 	print("SELFTEST DONE, failures: %d" % failures)
 	return failures
+
+
+func _click_spot(k: String) -> void:
+	var poly: Array = TownMap.SPOTS[k]["poly"]
+	var mid := Vector2.ZERO
+	for p in poly:
+		mid += p
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = true
+	# The gate is notched, so its average point sits on the outline; its plate is inside it.
+	ev.position = main.town_map.view_point(TownMap.SPOTS[k]["plate"] if k == "E" else mid / poly.size())
+	main.town_map._gui_input(ev)
+
+
+## The Castle is a map: each option has a building, clicks enter it, and greyed ones stay shut.
+func _test_town_map(g) -> void:
+	print("town map")
+	var saved: Array[int] = g.party.duplicate()
+	g.mode = "castle"
+	g.party.clear()
+	main.town.castle()
+	await get_tree().process_frame
+	check(main.town_map.visible, "the castle shows the map")
+	var map_party: GridContainer = main.town_map._party
+	var saved_party: Array[int] = g.party.duplicate()
+	var map_first: Character = g.make_char("MAPPER", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER", "FEMALE", "female_4")
+	g.party.assign([map_first.id])
+	main.town.castle()
+	check(map_party.get_child_count() == 12, "the map's party window has a header and a row per member")
+	var map_cells := map_party.get_children().map(func(n): return n.text if n is Label else "")
+	check(map_cells.slice(0, 6) == ["", "NAME", "CLASS", "LVL", "HEALTH", "STATUS"], "the party window has the header row")
+	check(map_cells.slice(7) == [map_first.name, "G-FIG", str(map_first.lvl), "%d/%d" % [map_first.hp, map_first.maxhp], "OK"], "a row follows the header's columns")
+	for col in [1, 7]:
+		check(map_party.get_child(col).horizontal_alignment == HORIZONTAL_ALIGNMENT_LEFT, "names are left justified")
+	for col in [2, 3, 4, 5, 8, 9, 10, 11]:
+		check(map_party.get_child(col).horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER, "the other party columns are centered")
+	check(map_party.get_child(6) is TextureRect and map_party.get_child(6).texture == load(map_first.portrait_path()), "the row starts with the member's portrait")
+	check(map_party.get_children().all(func(n): return n.mouse_filter == Control.MOUSE_FILTER_IGNORE), "the party window lets clicks through to the buildings")
+	g.party.assign(saved_party)
+	g.roster.erase(map_first)
+	main.town.castle()
+	var rect: Rect2 = main.town_map._map_rect()
+	check(absf(rect.size.x / rect.size.y - 16.0 / 9.0) < 0.001, "the map is 16:9")
+	check(main.town_map._texture != null and absf(float(main.town_map._texture.get_width()) / main.town_map._texture.get_height() - 16.0 / 9.0) < 0.001, "the painting is 16:9")
+	for o in main.scr["opts"]:
+		check(TownMap.SPOTS.has(o["k"]), "%s has a building on the map" % o["label"])
+	_click_spot("B")
+	check(main.scr["title"] == "Castle", "a greyed-out building stays shut")
+	_click_spot("G")
+	check(main.scr["title"] == "Gilgamesh's Tavern" and not main.town_map.visible, "clicking the tavern enters it and hides the map")
+	check(main._backdrop.visible, "clicking the tavern shows its painting")
+	press("L")
+	check(main.scr["title"] == "Castle" and main.town_map.visible, "leaving the tavern returns to the map")
+	_click_spot("E")
+	check(main.scr["title"] == "Edge of Town", "clicking the gate opens the Edge of Town")
+	press("C")
+	_click_spot("R")
+	check(main.scr["title"] == "Training Grounds", "clicking the yard opens the Training Grounds")
+	var training_art: Texture2D = main._backdrop.texture
+	check(main._backdrop.visible and training_art != null, "the Training Grounds show their painting")
+	check(absf(float(training_art.get_width()) / training_art.get_height() - 16.0 / 9.0) < 0.001, "the Training Grounds painting is 16:9")
+	press("C")
+	check(main.scr["title"] == "Create a character" and main._backdrop.texture == training_art, "creating a character keeps the painting")
+	main.chars.create_race("RACER")
+	check(main.scr.get("opts", []).is_empty(), "the race screen uses its own buttons")
+	check(not main._side.visible, "no race popup shows until a race is clicked")
+	main.scr["widget"].get_node("DWARF").pressed.emit()
+	check(main._side.visible and main.scr["side"].get_child(0).text == "Dwarves are strong", "clicking a race opens its popup")
+	var explain: Label = main.scr["side"].find_child("Explain", true, false)
+	for st in Data.STATS:
+		var info: Button = main.scr["side"].find_child("Info_" + st, true, false)
+		info.mouse_entered.emit()
+		check(explain.text == Data.STAT_INFO[st][1], "the (i) beside %s explains it" % st)
+		info.mouse_exited.emit()
+	check(main.scr["side"].get_child(2).get_child(0).text == "Strength: 10", "the popup shows the race's base statistics")
+	main.scr["side"].find_child("Choose", true, false).pressed.emit()
+	check(main.scr["title"] == "RACER: choose an alignment" and not main._side.visible, "choosing a race moves on and closes the popup")
+	press("G")
+	check(main.scr["title"].begins_with("RACER: G-DWARF"), "the chosen race carries through")
+	main.chars.create_race("RACER")
+	main.scr["widget"].get_node("Leave").pressed.emit()
+	check(main.scr["title"] == "Training Grounds", "leaving the race screen returns to the Training Grounds")
+	main.chars.create_stats("PAINTED", "HUMAN", "GOOD")
+	check(main._backdrop.texture == training_art, "spending bonus points keeps the painting")
+	for sex in ["MALE", "FEMALE"]:
+		check(not Data.portraits(sex).is_empty(), "%s has portraits" % sex)
+		for portrait in Data.portraits(sex):
+			check(ResourceLoader.exists(Character.PORTRAIT_FILE % portrait), "portrait %s exists" % portrait)
+	var picked := {"nm": "PICKED", "race": "HUMAN", "al": "GOOD", "st": Data.RACES["HUMAN"].duplicate(), "pts": 0, "max": 0}
+	main.chars.create_sex(picked, "FIGHTER")
+	press("F")
+	check(main.scr["title"].ends_with("choose a portrait") and main.scr["widget"].get_child_count() == 12 and main.scr["widget"].columns == 4, "a page of portraits is a 4x3 grid")
+	check(main.scr["widget"].get_child(0).get_child_count() == 0, "portraits carry no numbers")
+	check(not press("B"), "the first page of portraits has nothing before it")
+	check(press("N") and main.scr["widget"].get_child_count() == 12, "the next page of portraits offers twelve more")
+	var keep_nm: String = picked["nm"]
+	main.scr["widget"].get_child(1).pressed.emit()
+	check(picked["portrait"] == "female_14", "clicking a portrait picks from the page on show")
+	check(keep_nm == "PICKED", "picking a portrait keeps the character")
+	main.chars.create_portrait(picked, "FIGHTER", "FEMALE", ceili(Data.portraits("FEMALE").size() / 12.0) - 1)
+	check(not press("N") and main.scr["widget"].get_child_count() == (Data.portraits("FEMALE").size() - 1) % 12 + 1, "the last page holds the remaining portraits")
+	main.chars.create_portrait(picked, "FIGHTER", "MALE")
+	check(main.scr["widget"].get_child_count() == 12 and press("N") and main.scr["widget"].get_child_count() == 12, "the male portraits have pages too")
+	main.chars.create_portrait(picked, "FIGHTER", "FEMALE")
+	main.scr["widget"].get_child(1).pressed.emit()
+	check(main.scr["title"] == "Keep this character?" and main._portrait.visible, "the confirmation shows the chosen portrait")
+	press("Y")
+	var made: Character = g.roster.back()
+	check(made.name == "PICKED" and made.sex == "FEMALE" and made.portrait == "female_2", "the new character keeps the sex and portrait chosen")
+	check(not main._portrait.visible, "the Training Grounds hide the portrait again")
+	check(made.his() == "HER" and made.him() == "HER", "a female character gets female pronouns")
+	var reloaded := Character.from_dict(JSON.parse_string(JSON.stringify(made.to_dict())))
+	check(reloaded.sex == "FEMALE" and reloaded.portrait == "female_2", "sex and portrait survive a save")
+	var old_save := made.to_dict()
+	old_save.erase("sex")
+	old_save.erase("portrait")
+	var old_char := Character.from_dict(old_save)
+	check(old_char.sex == "MALE" and old_char.portrait == "male_1", "characters from older saves default to portrait 1")
+	var old_woman := made.to_dict()
+	old_woman["portrait"] = "female_9999"
+	check(Character.from_dict(old_woman).portrait == "female_1", "a missing portrait defaults to portrait 1 of the right sex")
+	main.chars.inspect(old_char, "tavern", main.chars.training)
+	check(main._portrait.visible and main._portrait_image.texture != null, "inspecting a character from an older save shows a portrait")
+	old_char.portrait = ""
+	main.chars.train_char(made)
+	check(main._portrait.visible and main._portrait_image.texture != null, "inspecting a character shows their portrait")
+	main.chars.train_char(old_char)
+	check(not main._portrait.visible, "a character with no portrait shows none")
+	main.chars.train_char(made)
+	press("P")
+	check(main.scr["title"] == "PICKED: choose a portrait" and main.scr["widget"].get_child_count() == 12, "Change Portrait opens the picker")
+	press("L")
+	check(main.scr["title"] == "PICKED" and made.portrait == "female_2", "leaving the picker keeps the old portrait")
+	press("P")
+	press("N")
+	main.scr["widget"].get_child(0).pressed.emit()
+	check(main.scr["title"] == "PICKED" and made.portrait == "female_13", "Change Portrait replaces the portrait")
+	check(main._portrait_image.texture == load(made.portrait_path()), "the character screen shows the new portrait")
+	g.roster.erase(made)
+	main.chars.training()
+	press("R")
+	check(main.scr["title"] == "Roster" and main._backdrop.texture == training_art, "the roster keeps the painting")
+	press("Enter")
+	press("L")
+	check(main.scr["title"] == "Castle", "leaving the Training Grounds returns to the map")
+	check(not main._backdrop.visible, "leaving the Training Grounds clears their painting")
+	press("T")
+	check(main.scr["title"] == "Castle", "the Temple key respects the greying")
+	for id in saved:
+		g.party.append(id)
+	main.town.castle()
+	press("T")
+	check(main.scr["title"] != "Castle", "the Temple key opens the Temple with a party")
+	main.town.castle()
+	_click_spot("B")
+	var boltac_art: Texture2D = main._backdrop.texture
+	check(main._backdrop.visible and boltac_art != null, "clicking Boltac's shows its painting")
+	check(absf(float(boltac_art.get_width()) / boltac_art.get_height() - 16.0 / 9.0) < 0.001, "Boltac's painting is 16:9")
+	press("1")
+	check(main.scr["title"] == "Boltac's Trading Post" and main._backdrop.texture == boltac_art, "the shop keeps the painting")
+	press("B")
+	check(main.scr["title"] == "Buy" and main._backdrop.texture == boltac_art, "buying keeps the painting")
+	press("L")
+	press("S")
+	check(main.scr["title"] == "Sell" and main._backdrop.texture == boltac_art, "selling keeps the painting")
+	press("L")
+	press("L")
+	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving Boltac's clears its painting")
+	_click_spot("A")
+	var inn_art: Texture2D = main._backdrop.texture
+	check(main._backdrop.visible and inn_art != null and inn_art != boltac_art, "clicking the inn shows its own painting")
+	check(absf(float(inn_art.get_width()) / inn_art.get_height() - 16.0 / 9.0) < 0.001, "the inn painting is 16:9")
+	main.town.inn_rooms(g.party_chars()[0])
+	check(main.scr["title"].begins_with("Welcome") and main._backdrop.texture == inn_art, "the rooms keep the painting")
+	press("L")
+	check(main.scr["title"].begins_with("Adventurer's Inn") and main._backdrop.texture == inn_art, "leaving the rooms returns to the inn")
+	press("L")
+	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving the inn clears its painting")
+	var party_before: Array[int] = g.party.duplicate()
+	press("R")
+	check(main.scr["title"] == "Training Grounds" and g.party == party_before and not party_before.is_empty(), "the Training Grounds keep the party together")
+	var retiree: Character = g.make_char("RETIREE", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER")
+	g.party.append(retiree.id)
+	main.chars._delete(retiree)
+	check(g.party == party_before and g.ch(retiree.id) == null, "retiring a party member takes them out of the party")
+	var fillers: Array[Character] = []
+	while not g.roster_full():
+		fillers.append(g.make_char("FILLER%d" % fillers.size(), "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER"))
+	check(g.roster.size() == 16, "the roster holds 16 characters")
+	main.chars.training()
+	press("C")
+	check(main.scr["title"] == "Training Grounds", "a full roster cannot create a character")
+	main.chars._delete(fillers.pop_back())
+	press("C")
+	check(main.scr["title"] == "Create a character", "deleting a character makes room for a new one")
+	for filler in fillers:
+		main.chars._delete(filler)
+	press("L")
+	press("T")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(main._table.get_global_rect().end.y <= main.size.y, "the party table fits the window over the temple painting")
+	var long_named: Character = g.party_chars()[0]
+	var real_name: String = long_named.name
+	long_named.name = "BARTHOLOMEWSMIT"  # the longest name, which is what used to wrap
+	main.town.castle()
+	main.town.edge_of_town()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var plain_height: int = main._party.get_content_height()
+	main.town.temple()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(main._party.get_content_height() < plain_height, "the party table is compact over the temple painting (%d, normally %d)" % [main._party.get_content_height(), plain_height])
+	var healed: Character = g.party_chars()[0]
+	healed.hp -= 1  # a healing changes the table while the temple is showing
+	main.town.temple()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	main.town.castle()
+	main.town.edge_of_town()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(main._party.get_content_height() == plain_height, "the party table recovers its layout after the temple (%d, was %d)" % [main._party.get_content_height(), plain_height])
+	healed.hp += 1
+	long_named.name = real_name
+	main.town.castle()
+
+
+func _key(code: Key) -> InputEventKey:
+	var ev := InputEventKey.new()
+	ev.keycode = code
+	ev.pressed = true
+	return ev
+
+
+func _release() -> InputEventMouseButton:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	return ev
+
+
+func _click() -> InputEventMouseButton:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = true
+	return ev
+
+
+func _ok_button() -> Button:
+	for b in main._opts_flow.get_children():
+		if b.text == "OK" and not b.is_queued_for_deletion():
+			return b
+	return null
+
+
+func _scene_is(path: String) -> bool:
+	for i in 4:
+		await get_tree().process_frame
+	return get_tree().current_scene != null and get_tree().current_scene.scene_file_path == path
+
+
+## Company screen -> title screen -> game, with and without a saved game.
+func _test_start_flow(g, roster_size: int) -> void:
+	print("start-up flow")
+	main.queue_free()
+	g.save_game()
+	check(ProjectSettings.get_setting("application/run/main_scene") == "res://scenes/splash.tscn", "the game boots to the company screen")
+
+	# The company screen moves on by itself, and a click skips it. Keys do nothing.
+	get_tree().change_scene_to_file("res://scenes/splash.tscn")
+	check(await _scene_is("res://scenes/splash.tscn"), "company screen loads")
+	get_tree().current_scene._process(100.0)
+	check(await _scene_is("res://scenes/title.tscn"), "company screen times out to the title")
+	get_tree().change_scene_to_file("res://scenes/splash.tscn")
+	await _scene_is("res://scenes/splash.tscn")
+	get_tree().current_scene._input(_key(KEY_SPACE))
+	check(await _scene_is("res://scenes/splash.tscn"), "a key does not skip the company screen")
+	get_tree().current_scene._input(_click())
+	check(await _scene_is("res://scenes/title.tscn"), "a click skips the company screen")
+
+	# The title shows its painting and waits for a whole tap before its buttons appear.
+	var title = get_tree().current_scene
+	check(title.get_node("Art").texture == load("res://assets/images/title.webp"), "the title shows its painting")
+	title._process(100.0)
+	check(await _scene_is("res://scenes/title.tscn") and not title.nav.visible, "the title waits")
+	title._input(_key(KEY_SPACE))
+	check(not title.nav.visible, "a key does not bring up the buttons")
+	title._input(_release())
+	check(not title.nav.visible, "the release of the click that skipped the company screen does nothing")
+	title._input(_click())
+	check(not title.nav.visible, "a press alone cannot land on a button")
+	title._input(_release())
+	check(title.nav.visible and not title._tap.visible, "a tap brings up the buttons")
+	check(await _scene_is("res://scenes/title.tscn") and title.get_node("Art").visible, "the title stays up behind the buttons")
+	check(title.nav.get_global_rect().get_center().distance_to(title.get_global_rect().get_center()) < 1.0, "the title's buttons sit at the centre of the screen")
+	check(title.venture_button.text == "Venture Onwards" and title.options_button.text == "Options" and title.nav.get_child_count() == 2, "the title has its two buttons")
+	check(title.venture_button.get_theme_stylebox("normal").texture == load("res://assets/images/buttons/large_normal.png") and title.venture_button.get_theme_stylebox("pressed").texture == load("res://assets/images/buttons/large_pressed.png"), "venture onwards uses the large button art")
+	check(title.options_button.get_theme_stylebox("normal").texture == load("res://assets/images/buttons/medium_normal.png"), "options uses the medium button art")
+
+	# Options opens the panel and Back closes it.
+	title.options_button.pressed.emit()
+	check(title.options_panel.visible and not title.nav.visible, "options opens its panel")
+	title.back_button.pressed.emit()
+	check(not title.options_panel.visible and title.nav.visible, "back returns to the title buttons")
+
+	# Venture Onwards resumes the save.
+	title.venture_button.pressed.emit()
+	check(await _scene_is("res://scenes/main.tscn"), "venture onwards enters the game")
+	check(g.roster.size() == roster_size, "venture onwards keeps the roster")
+	check(get_tree().current_scene.scr.get("title", "") == "Castle", "a town save resumes at the castle")
+
+	# A save out in the Maze resumes there, with its position and spells.
+	var hero: Character = g.roster[0]
+	hero.status = "OK"
+	g.party.clear()
+	g.party.append(hero.id)
+	g.pos = {"x": 3, "y": 4, "z": 2, "d": 1}
+	g.light = 30
+	g.outs = []
+	g.mode = "maze"
+	g.save_game()
+	await _venture_from_title()
+	check(g.mode == "maze" and g.pos == {"x": 3, "y": 4, "z": 2, "d": 1}, "a maze save resumes on its square")
+	check(g.light == 30 and g.party == [hero.id], "a maze save keeps the party and its light")
+	check(get_tree().current_scene.scr.get("where", "") == "Maze · Level 2", "a maze save shows the maze")
+	check(g.outs.is_empty(), "a resumed party is not stranded")
+	g.mode = "camp"
+	g.save_game()
+	await _venture_from_title()
+	check(g.mode == "camp", "a camp save resumes in camp")
+	g.mode = "combat"
+	g.save_game()
+	await _venture_from_title()
+	check(g.mode == "maze" and get_tree().current_scene.fight.battle == null, "a save from a fight resumes in the maze")
+	g.ch(g.party[0]).status = "DEAD"
+	g.save_game()
+	await _venture_from_title()
+	check(get_tree().current_scene.scr.get("title", "") == "Your party is wiped out" and g.party.is_empty(), "a dead party resumes as wiped out")
+
+	# With nothing saved, Venture Onwards starts a new game at the castle.
+	g.new_game()
+	check(not FileAccess.file_exists(g.save_path), "starting over deletes the save")
+	await _venture_from_title()
+	check(g.roster.is_empty() and g.mode == "castle", "no save starts a new game at the castle")
+	check(get_tree().current_scene.scr.get("title", "") == "Welcome to the Underworlds", "a new game shows the welcome")
+
+
+func _venture_from_title() -> void:
+	get_tree().change_scene_to_file("res://scenes/title.tscn")
+	await _scene_is("res://scenes/title.tscn")
+	var title = get_tree().current_scene
+	title._input(_click())
+	title._input(_release())
+	title.venture_button.pressed.emit()
+	await _scene_is("res://scenes/main.tscn")

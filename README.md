@@ -1,4 +1,4 @@
-# Underworlds 2: Proving Grounds of the Mad Overlord
+# Underworlds: Descent into Darkness
 
 A first-person, turn-based dungeon crawler in the style of the classic Wizardry games, built in **Godot 4.7.2** with GDScript.
 
@@ -13,16 +13,17 @@ Create a party at the Training Grounds, gather it at Gilgamesh's Tavern, outfit 
 2. Open Godot 4.7.2, choose **Import**, and select `project.godot` in that folder.
 3. Press **F5** to play.
 
+## Start-up
+
+The game opens on the company screen (set the name in `COMPANY_NAME` in `scripts/ui/menu/splash_scene.gd`), then the title screen. Any click or tap skips the company screen. A tap on the title screen brings up its buttons: Venture Onwards returns to where the last save left the party, or the castle in a new game, and Options opens the options panel.
+
+## The town
+
+The Castle screen is a painted map of the town. Click a building to enter it: Gilgamesh's Tavern, the Adventurer's Inn, Boltac's (the forge), the Temple of Cant, the Training Grounds, the Maze (the skull cave) and the Edge of Town (the south gate, which also has Utilities and Leave Game). Buildings that need a party are greyed out until you have one. The roster holds up to 16 characters (`MAX_ROSTER` in `scripts/core/game.gd`). New characters choose male or female and a portrait, shown when they are inspected and changeable at the Training Grounds. The race screen is mouse only, and clicking a race opens a popup of its base statistics with an (i) explaining each. Outlines and plate positions are in `SPOTS` in `scripts/screens/town_map.gd`.
+
 ## Controls
 
-Every menu works like the original manual: press the letter before the `)` (or click the button).
-
-| Where | Keys |
-| --- | --- |
-| Menus | The option's letter or number; `Enter` picks the highlighted default, `Esc` backs out |
-| Maze | `W` / `↑` step forward, `A` / `←` turn left, `D` / `→` turn right, `X` / `↓` about-face |
-| Maze | `C` camp, `S` status, `I` inspect area (find lost parties), `M` map notes, `Q` quit expedition |
-| Character creation | `↑` / `↓` choose a statistic, `+` / `-` or `←` / `→` spend bonus points |
+The game is played entirely with the mouse or touch: click or tap a button. In the Maze, the on-screen arrows step forward and turn. Character creation spends bonus points with the `+` and `-` buttons. The keyboard is only used to type into text boxes, such as a new character's name, confirmed with the OK button.
 
 ## What's in it
 
@@ -33,19 +34,32 @@ Every menu works like the original manual: press the letter before the `)` (or c
 - **The Maze:** four 20×20 levels with doors, secret doors (revealed by MILWA and LOMILWA), darkness, spinners, graffiti and stairs. Layouts are generated from a fixed seed, so they are the same every game and can be mapped on graph paper.
 - **Combat:** Fight, Parry, Dispell, Spell, Use, Run and Take Back; only the first three party slots fight and take melee hits; surprises, ambushes, friendly encounters, unidentified monsters, experience split among survivors.
 - **Treasure chests:** seven trap types; disarming means typing the trap's name.
-- **Losing and saving:** wiped-out or quit parties stay OUT in the Maze until rescued with INSPECT AREA or restarted from Utilities. The game saves to `user://underworlds2_save.json` as you play.
+- **Losing and saving:** wiped-out or quit parties stay OUT in the Maze until rescued with INSPECT AREA or restarted from Utilities. The game saves to `user://underworlds_save.json` as you play, and closing it mid-expedition resumes in the Maze or camp. A fight in progress is not saved.
 
 ## Project layout
 
 ```
 project.godot            Godot 4.7 project (GL Compatibility renderer)
-scenes/main.tscn         The only scene; the UI is built in code
+scenes/splash.tscn       Company screen, where the game boots
+scenes/title.tscn        Title screen
+scenes/main.tscn         The game; its UI is built in code
 scripts/data/data.gd     Autoload "Data": races, classes, spells, items, monsters, traps
 scripts/core/            Character, dice, and the "Game" autoload (state + save/load)
 scripts/maze/            Level data, seeded generator, and the drawn first-person view
 scripts/combat/          Battle rules and shared spell effects
 scripts/screens/         Town, character, maze and combat screens
-scripts/ui/main.gd       Layout, theme, and the lettered-menu system
+assets/images/title.webp      The title screen painting (`title_scene.gd`)
+assets/images/town_map.webp   The town painting (the map in `town_map.gd`)
+assets/images/tavern.webp     Gilgamesh's Tavern painting (`place_image` in `main.gd`)
+assets/images/boltac.webp     Boltac's Trading Post painting (`place_image` in `main.gd`)
+assets/images/inn.webp        The Adventurer's Inn painting (`place_image` in `main.gd`)
+assets/images/temple.webp     The Temple of Cant painting (`place_image` in `main.gd`)
+assets/images/training.webp   The Training Grounds painting (`place_image` in `main.gd`)
+assets/images/buttons/        Button art: small, medium, large, xlarge, yes and no, each `_normal` and `_pressed`
+assets/images/portraits/      Character portraits (counted in `PORTRAIT_COUNTS` in `data.gd`)
+scripts/ui/main.gd       Layout and the menu system
+scripts/ui/ui_style.gd   Palette, fonts and theme
+scripts/ui/menu/         Company screen and title screen
 tools/selftest.gd        Headless smoke test
 ```
 
