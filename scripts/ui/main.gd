@@ -29,6 +29,8 @@ var _opts_col: VBoxContainer
 var _log: RichTextLabel
 var _party: RichTextLabel
 var _pad: GridContainer
+var monsters_button: Button
+var god_button: Button
 var town_map: TownMap
 var place_image := ""  # the painting of the building the party is in; every screen shows it until cleared
 var _backdrop: TextureRect
@@ -51,6 +53,7 @@ func _ready() -> void:
 	town_map.visible = false
 	town_map.chosen.connect(_run)
 	add_child(town_map)
+	_build_test_switches()
 	town = TownScreens.new(self)
 	chars = CharScreens.new(self)
 	mz = MazeScreens.new(self)
@@ -64,6 +67,46 @@ func _ready() -> void:
 		say("Welcome to the Underworlds", "Trebor, the Mad Overlord, wants his amulet back from the wizard Werdna, who hides at the bottom of the maze beneath the castle.\n\n" +
 			"Start at the [color=#e3a33f]Edge of Town[/color]: open the [color=#e3a33f]Training Grounds[/color] and create six adventurers. Hawkwind recommends two fighters, a priest, a thief and two mages.\n\n" +
 			"Then gather them at Gilgamesh's Tavern, outfit them at Boltac's, and enter the Maze. Run home often.", town.castle)
+
+
+## Top middle of every screen, above the paintings.
+func _build_test_switches() -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	monsters_button = _test_switch(Game.monsters_on, _set_monsters)
+	row.add_child(monsters_button)
+	god_button = _test_switch(Game.god_mode, _set_god)
+	row.add_child(god_button)
+	_show_test_switches()
+	add_child(row)
+	row.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	row.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	row.offset_top = 10
+
+
+func _test_switch(on: bool, handler: Callable) -> Button:
+	var b := Button.new()
+	b.toggle_mode = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 16)
+	b.set_pressed_no_signal(on)
+	b.toggled.connect(handler)
+	return b
+
+
+func _set_monsters(on: bool) -> void:
+	Game.monsters_on = on
+	_show_test_switches()
+
+
+func _set_god(on: bool) -> void:
+	Game.god_mode = on
+	_show_test_switches()
+
+
+func _show_test_switches() -> void:
+	monsters_button.text = "MONSTERS: %s" % ("ON" if Game.monsters_on else "OFF")
+	god_button.text = "GOD MODE: %s" % ("ON" if Game.god_mode else "OFF")
 
 
 ## Returns to where the last save left the party. A fight isn't saved, so it resumes in the Maze.

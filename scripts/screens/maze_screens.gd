@@ -113,9 +113,13 @@ func forward() -> void:
 	if w == 1:
 		Game.say("OUCH!")
 		return
+	if w == 2 and not Game.door_open(p["z"], p["x"], p["y"], p["d"]):
+		Game.open_door(p["z"], p["x"], p["y"], p["d"])
+		Game.say("THE DOOR CREAKS OPEN.")
 	if w == 3:
 		Game.say("YOU STUMBLE THROUGH A HIDDEN DOOR!", "mag")
 		lv.cell(p["x"], p["y"])["f"]["k%d" % p["d"]] = true
+		Game.open_door(p["z"], p["x"], p["y"], p["d"])
 	p["x"] += MazeLevel.DX[p["d"]]
 	p["y"] += MazeLevel.DY[p["d"]]
 	Game.mark_seen()
@@ -123,7 +127,7 @@ func forward() -> void:
 		Game.light -= 1
 	for c in Game.party_chars():
 		if c.status == "POISON" and randf() < 0.5:
-			c.hp -= 1
+			Game.hurt(c, 1)
 			if c.hp <= 0:
 				c.hp = 0
 				c.status = "DEAD"
@@ -150,16 +154,17 @@ func _after_step() -> void:
 	var y: int = p["y"]
 	var lair = lv.flag(x, y, "lair")
 	var key := "%d:%d" % [p["z"], 0 if lair == null else int(lair)]
-	if lv.flag(x, y, "boss") and not Game.cleared.has("boss"):
-		ui.fight.encounter(false, true)
-		return
-	if lair != null and not Game.cleared.has(key):
-		Game.cleared[key] = true
-		ui.fight.encounter(true, false)
-		return
-	if randf() < 0.035 + p["z"] * 0.006:
-		ui.fight.encounter(false, false)
-		return
+	if Game.monsters_on:
+		if lv.flag(x, y, "boss") and not Game.cleared.has("boss"):
+			ui.fight.encounter(false, true)
+			return
+		if lair != null and not Game.cleared.has(key):
+			Game.cleared[key] = true
+			ui.fight.encounter(true, false)
+			return
+		if randf() < 0.035 + p["z"] * 0.006:
+			ui.fight.encounter(false, false)
+			return
 	if lv.flag(x, y, "up"):
 		ui.yesno("Stairs going up", "These stairs lead back to the Castle. Take them?" if p["z"] == 1 else "Take the stairs up?", _go_up, maze)
 		ui.view.show_view("maze")

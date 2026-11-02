@@ -141,7 +141,7 @@ func _end_of_round() -> String:
 			c.status = "OK"
 			Game.say("%s WAKES UP." % c.name)
 		if c.status == "POISON":
-			c.hp -= Dice.rnd(1, 2)
+			Game.hurt(c, Dice.rnd(1, 2))
 			if c.hp <= 0:
 				c.hp = 0
 				c.status = "DEAD"
@@ -340,7 +340,7 @@ func _cast(c: Character, n: String, t: Variant) -> void:
 
 
 func _hurt_party(t: Character, d: int) -> void:
-	t.hp -= d
+	Game.hurt(t, d)
 	if t.hp <= 0:
 		t.hp = 0
 		t.status = "DEAD"
@@ -377,12 +377,12 @@ func _mon_act(gp: Dictionary, m: Dictionary) -> void:
 					_hurt_party(t, d)
 			"KATINO":
 				for t in ps:
-					if t.status == "OK" and not _luck_save(t) and randf() < 0.6:
+					if not Game.god_mode and t.status == "OK" and not _luck_save(t) and randf() < 0.6:
 						t.status = "ASLEEP"
 						Game.say("%s FALLS ASLEEP." % t.name, "hit")
 			"MANIFO":
 				for t in ps:
-					if t.can_act() and not _luck_save(t) and randf() < 0.3:
+					if not Game.god_mode and t.can_act() and not _luck_save(t) and randf() < 0.3:
 						t.status = "PARALYZED"
 						Game.say("%s IS PARALYZED!" % t.name, "hit")
 			_:
@@ -399,7 +399,7 @@ func _mon_act(gp: Dictionary, m: Dictionary) -> void:
 				d = int(ceil(d / 2.0))
 			Game.say("%s TAKES %d DAMAGE." % [t.name, d], "hit")
 			_hurt_party(t, d)
-			if M["look"] == "cloud" and t.status == "OK" and randf() < 0.3:
+			if not Game.god_mode and M["look"] == "cloud" and t.status == "OK" and randf() < 0.3:
 				t.status = "POISON"
 				Game.say("%s IS POISONED!" % t.name, "hit")
 		return
@@ -413,7 +413,7 @@ func _mon_act(gp: Dictionary, m: Dictionary) -> void:
 			hits += 1
 			var d := Dice.roll(dice)
 			dmg += d
-			t.hp -= d
+			Game.hurt(t, d)
 	if hits == 0:
 		Game.say("%s ATTACKS %s AND MISSES." % [nm, t.name])
 		return
@@ -422,6 +422,8 @@ func _mon_act(gp: Dictionary, m: Dictionary) -> void:
 		t.hp = 0
 		t.status = "DEAD"
 		Game.say("%s IS KILLED!" % t.name, "hit")
+		return
+	if Game.god_mode:
 		return
 	if M.get("poison", false) and t.status == "OK" and randf() < 0.33:
 		t.status = "POISON"

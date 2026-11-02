@@ -300,14 +300,14 @@ func _try_disarm(c: Character, v: String) -> void:
 
 
 func _poison(t: Character) -> void:
-	if t.status == "OK":
+	if t.status == "OK" and not Game.god_mode:
 		t.status = "POISON"
 		Game.say("%s IS POISONED!" % t.name, "hit")
 
 
 func _hurt(t: Character, d: int) -> void:
 	Game.say("%s TAKES %d DAMAGE." % [t.name, d], "hit")
-	t.hp -= d
+	Game.hurt(t, d)
 	if t.hp <= 0:
 		t.hp = 0
 		t.status = "DEAD"
@@ -331,7 +331,7 @@ func _spring(c: Character) -> void:
 					d = int(ceil(d / 2.0))
 				_hurt(t, d)
 		5:
-			if c.is_alive():
+			if c.is_alive() and not Game.god_mode:
 				c.status = "PARALYZED"
 				Game.say("%s IS PARALYZED!" % c.name, "hit")
 		6:

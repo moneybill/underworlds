@@ -25,6 +25,10 @@ var seen := {}  # "z" -> {"x,y": true}, the player's map notes
 var won := false
 var show_map := false
 var levels: Array = []  # MazeLevel per depth, index 1..MAZE_LEVELS
+var opened := {}  # doors the party has opened, one entry for each side
+# Testing switches, set from the buttons on screen. They last until the game closes and are never saved.
+var god_mode := false  # the party takes no damage and no harmful conditions
+var monsters_on := true  # off: no fights start in the Maze
 
 
 func _ready() -> void:
@@ -45,6 +49,7 @@ func reset_state() -> void:
 	latumapic = false
 	cleared = {}
 	seen = {}
+	opened = {}
 	won = false
 	show_map = false
 
@@ -56,6 +61,12 @@ func build_levels() -> void:
 		var lv := MazeGen.generate(z, start, MAZE_LEVELS)
 		levels.append(lv)
 		start = lv.down
+
+
+## All damage to the party comes through here, so god mode can stop it.
+func hurt(c: Character, d: int) -> void:
+	if not god_mode:
+		c.hp -= d
 
 
 func say(text: String, kind: String = "") -> void:
@@ -161,6 +172,20 @@ func split_gold(amount: int) -> void:
 	say("EACH SURVIVOR FINDS %d GOLD PIECES." % each, "gold")
 
 
+func _door_key(z: int, x: int, y: int, d: int) -> String:
+	return "%d:%d,%d:%d" % [z, x, y, d]
+
+
+func door_open(z: int, x: int, y: int, d: int) -> bool:
+	return opened.has(_door_key(z, x, y, d))
+
+
+## Opens a door from both of its sides.
+func open_door(z: int, x: int, y: int, d: int) -> void:
+	opened[_door_key(z, x, y, d)] = true
+	opened[_door_key(z, x + MazeLevel.DX[d], y + MazeLevel.DY[d], (d + 2) % 4)] = true
+
+
 func mark_seen() -> void:
 	var key := str(pos["z"])
 	if not seen.has(key):
@@ -182,7 +207,7 @@ func new_game() -> void:
 
 func save_game() -> void:
 	var data := {"version": 1, "party": party, "pos": pos, "mode": mode, "next_id": next_id, "stock": stock, "outs": outs,
-		"light": light, "maporfic": maporfic, "latumapic": latumapic, "cleared": cleared, "seen": seen, "won": won,
+		"light": light, "maporfic": maporfic, "latumapic": latumapic, "cleared": cleared, "seen": seen, "opened": opened, "won": won,
 		"show_map": show_map, "roster": roster.map(func(c: Character): return c.to_dict())}
 	var f := FileAccess.open(save_path, FileAccess.WRITE)
 	if f:
@@ -212,6 +237,7 @@ func load_game() -> void:
 		outs.append({"ids": o["ids"].map(func(v): return int(v)), "pos": _int_dict(o["pos"])})
 	cleared = d.get("cleared", {})
 	seen = d.get("seen", {})
+	opened = d.get("opened", {})
 	won = bool(d.get("won", false))
 	show_map = bool(d.get("show_map", false))
 	light = int(d.get("light", 0))

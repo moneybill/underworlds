@@ -45,7 +45,7 @@ scenes/title.tscn        Title screen
 scenes/main.tscn         The game; its UI is built in code
 scripts/data/data.gd     Autoload "Data": races, classes, spells, items, monsters, traps
 scripts/core/            Character, dice, and the "Game" autoload (state + save/load)
-scripts/maze/            Level data, seeded generator, and the drawn first-person view
+scripts/maze/            Level data, seeded generator, the first-person view, and the 3D Maze with its torchlight
 scripts/combat/          Battle rules and shared spell effects
 scripts/screens/         Town, character, maze and combat screens
 assets/images/title.webp      The title screen painting (`title_scene.gd`)
@@ -56,6 +56,7 @@ assets/images/inn.webp        The Adventurer's Inn painting (`place_image` in `m
 assets/images/temple.webp     The Temple of Cant painting (`place_image` in `main.gd`)
 assets/images/training.webp   The Training Grounds painting (`place_image` in `main.gd`)
 assets/images/buttons/        Button art: small, medium, large, xlarge, yes and no, each `_normal` and `_pressed`
+assets/images/maze/           Maze walls, doors, floors and ceilings (listed at the top of `maze_world.gd`). Wall art is 16:9 shown on 4:3 walls, so paint round shapes about a third wider than tall
 assets/images/portraits/      Character portraits (counted in `PORTRAIT_COUNTS` in `data.gd`)
 scripts/ui/main.gd       Layout and the menu system
 scripts/ui/ui_style.gd   Palette, fonts and theme
@@ -81,3 +82,7 @@ godot --headless --path . --script res://tools/selftest.gd
 ```
 
 The exit code is the number of failed checks.
+
+## Testing switches
+
+The **Monsters** and **God mode** buttons at the top of every screen are for testing. With monsters off no fights start in the Maze; in god mode the party takes no damage or harmful conditions. Both reset when the game closes.

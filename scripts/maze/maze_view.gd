@@ -1,6 +1,6 @@
 class_name MazeView
 extends Control
-## The picture window. Draws the Castle scenes, the first-person wireframe Maze, camp,
+## The picture window. Draws the Castle scenes, the first-person painted Maze, camp,
 ## monsters in combat, and treasure chests. Everything is drawn on a 480x360 canvas and scaled.
 
 const W := 480.0
@@ -10,20 +10,42 @@ const TORCH := Color("e3a33f")
 const BLOOD := Color("d6563f")
 const MANA := Color("8bace6")
 const MOSS := Color("93c07e")
-const DOOR := Color("2a2016")
 
 var kind := "castle"
 var mono: Font
 var battle: Battle = null
+var world: MazeWorld
 
 
 func _ready() -> void:
 	clip_contents = true
-	resized.connect(queue_redraw)
+	world = MazeWorld.new()
+	add_child(world)
+	resized.connect(_fit_world)
+	get_viewport().size_changed.connect(_fit_world)
+	visibility_changed.connect(_update_world)
+	_fit_world()
 
 
 func show_view(k: String) -> void:
 	kind = k
+	_update_world()
+	queue_redraw()
+
+
+func _shows_maze() -> bool:
+	return kind == "maze" or kind == "camp"
+
+
+func _update_world() -> void:
+	if world != null:
+		world.set_active(_shows_maze() and is_visible_in_tree())
+
+
+## Renders the Maze at the window's own pixels, so the art stays sharp.
+func _fit_world() -> void:
+	var px := size * get_global_transform_with_canvas().get_scale()
+	world.size = Vector2i(maxi(1, int(px.x)), maxi(1, int(px.y)))
 	queue_redraw()
 
 
@@ -124,83 +146,14 @@ func _edge() -> void:
 
 
 # ---------- the Maze ----------
-func _frame(i: int) -> Rect2:
-	var s: float = [1.0, .64, .42, .29, .2, .14, .1, .07][i]
-	return Rect2((W - W * s) / 2.0, (H - H * s) / 2.0, W * s, H * s)
-
-
-func _shade(d: float) -> Color:
-	var v: float = max(0.0, 1.0 - d * 0.19)
-	return Color8(int(52 * v + 10), int(58 * v + 11), int(82 * v + 16))
-
-
-func _edge_col(d: float) -> Color:
-	return Color(TORCH, max(0.15, 0.85 - d * 0.16))
-
-
-func _vis(code: int) -> int:
-	return 1 if code == 3 and Game.light <= 0 else code
-
-
 func _maze(with_map: bool) -> void:
 	var p: Dictionary = Game.pos
 	var lv: MazeLevel = Game.level()
 	if lv.flag(p["x"], p["y"], "dark"):
 		_txt("DARKNESS", 240, 190, 28, Color("3a4159"))
 		return
-	draw_rect(Rect2(0, 0, W, H / 2), Color("0c0e16"))
-	draw_rect(Rect2(0, H / 2, W, H / 2), Color("151824"))
-	var dir: int = p["d"]
-	var depth := 5 if Game.light > 0 else 3
-	var left := (dir + 3) % 4
-	var right := (dir + 1) % 4
-	var cells := []
-	var x: int = p["x"]
-	var y: int = p["y"]
-	for d in depth:
-		if not lv.in_bounds(x, y) or (d > 0 and lv.flag(x, y, "dark")):
-			break
-		cells.append(Vector2i(x, y))
-		if _vis(lv.wall(x, y, dir)) != 0:
-			break
-		x += MazeLevel.DX[dir]
-		y += MazeLevel.DY[dir]
-	for d in range(cells.size() - 1, -1, -1):
-		var c: Vector2i = cells[d]
-		var a := _frame(d)
-		var b := _frame(d + 1)
-		if lv.flag(c.x, c.y, "up") or lv.flag(c.x, c.y, "down"):
-			for i in range(1, 4):
-				var t := i / 4.0
-				var yy: float = a.end.y + (b.end.y - a.end.y) * t
-				draw_line(Vector2(a.position.x + (b.position.x - a.position.x) * t + 8, yy), Vector2(a.end.x + (b.end.x - a.end.x) * t - 8, yy), _edge_col(d), 1.0)
-		for side in [[left, a.position.x, b.position.x], [right, a.end.x, b.end.x]]:
-			var sd: int = side[0]
-			var ax: float = side[1]
-			var bx: float = side[2]
-			var w := _vis(lv.wall(c.x, c.y, sd))
-			if w != 0:
-				_poly(PackedVector2Array([Vector2(ax, a.position.y), Vector2(bx, b.position.y), Vector2(bx, b.end.y), Vector2(ax, a.end.y)]), _shade(d + .5), _edge_col(d))
-				if w >= 2:
-					var f := 0.22
-					var ix0 := ax + (bx - ax) * f
-					var ix1 := ax + (bx - ax) * (1 - f)
-					var ty0 := a.position.y + (b.position.y - a.position.y) * f + (a.end.y - a.position.y) * .22
-					var ty1 := b.position.y + (a.position.y - b.position.y) * f + (b.end.y - b.position.y) * .22
-					_poly(PackedVector2Array([Vector2(ix0, ty0), Vector2(ix1, ty1), Vector2(ix1, b.end.y + (a.end.y - b.end.y) * f), Vector2(ix0, a.end.y + (b.end.y - a.end.y) * f)]), DOOR, _edge_col(d))
-			else:
-				var nx: int = c.x + MazeLevel.DX[sd]
-				var ny: int = c.y + MazeLevel.DY[sd]
-				if not lv.in_bounds(nx, ny) or _vis(lv.wall(nx, ny, dir)) != 0:
-					_poly(PackedVector2Array([Vector2(ax, b.position.y), Vector2(bx, b.position.y), Vector2(bx, b.end.y), Vector2(ax, b.end.y)]), _shade(d + 1), _edge_col(d + 1))
-		var fw := _vis(lv.wall(c.x, c.y, dir))
-		if fw != 0:
-			_poly(PackedVector2Array([b.position, Vector2(b.end.x, b.position.y), b.end, Vector2(b.position.x, b.end.y)]), _shade(d + 1), _edge_col(d + 1))
-			if fw >= 2:
-				var bw := b.size.x
-				var bh := b.size.y
-				_poly(PackedVector2Array([Vector2(b.position.x + bw * .28, b.end.y), Vector2(b.position.x + bw * .28, b.position.y + bh * .22),
-					Vector2(b.end.x - bw * .28, b.position.y + bh * .22), Vector2(b.end.x - bw * .28, b.end.y)]), DOOR, _edge_col(d + 1))
+	world.sync_to_party()
+	draw_texture_rect(world.get_texture(), Rect2(0, 0, W, H), false)
 	if lv.flag(p["x"], p["y"], "up"):
 		_txt("A STAIRCASE LEADS UP", 240, 340, 22, TORCH)
 	if lv.flag(p["x"], p["y"], "down"):

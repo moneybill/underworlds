@@ -281,6 +281,52 @@ func _click_spot(k: String) -> void:
 
 ## The Castle is a map: each option has a building, clicks enter it, and greyed ones stay shut.
 func _test_town_map(g) -> void:
+	print("maze in 3D")
+	check(MazeWorld.camera_yaw(0) == 0.0 and is_equal_approx(MazeWorld.camera_yaw(1), -PI / 2.0), "the camera turns clockwise from north")
+	var cam_at := MazeWorld.camera_place(Vector2i(0, 0), 0)
+	check(cam_at.is_equal_approx(Vector3(1.0, 0.75, -0.1)), "the camera stands near the back of the square, halfway up")
+	check(MazeWorld.camera_place(Vector2i(0, 0), 1).is_equal_approx(Vector3(0.1, 0.75, -1.0)), "facing east it backs up to the west")
+	check(MazeWorld.seen_wall(3, false) == 1 and MazeWorld.seen_wall(3, true) == 3, "a secret door looks like wall until the light reveals it")
+	var map_world: MazeWorld = main.view.world
+	var wall_counts := {}
+	for wall_y in MazeLevel.N:
+		for wall_x in MazeLevel.N:
+			for wall_d in 4:
+				var wall_tex: Texture2D = map_world._wall_piece(1, Vector2i(wall_x, wall_y), wall_d)
+				wall_counts[wall_tex] = wall_counts.get(wall_tex, 0) + 1
+	check(wall_counts.size() == MazeWorld.WALL_ART.size() + MazeWorld.RARE_WALL_ART.size(), "every wall piece turns up")
+	check(map_world._wall_piece(1, Vector2i(3, 4), 2) == map_world._wall_piece(1, Vector2i(3, 4), 2), "a wall always keeps the same piece")
+	check(wall_counts[MazeWorld.RARE_WALL_ART[0]] < wall_counts[MazeWorld.WALL_ART[0]] and wall_counts[MazeWorld.RARE_WALL_ART[1]] < wall_counts[MazeWorld.WALL_ART[0]], "landmark walls are rarer than plain ones")
+	var map_pos: Dictionary = g.pos.duplicate()
+	var map_light: int = g.light
+	g.pos = {"x": 0, "y": 0, "z": 1, "d": 0}
+	g.light = 0
+	map_world.sync_to_party()
+	check(map_world._level.mesh.get_surface_count() >= 5, "the level mesh holds its walls, doors, floors and ceilings")
+	var plain_mesh: Mesh = map_world._level.mesh
+	map_world.sync_to_party()
+	check(map_world._level.mesh == plain_mesh, "the level is only built once")
+	g.light = 30
+	map_world.sync_to_party()
+	check(map_world._level.mesh != plain_mesh, "light rebuilds the level, to reveal secret doors")
+	check(map_world._torch.omni_range == MazeWorld.SPELL_REACH, "light spells reach farther than the torch")
+	var shows_open := func() -> bool:
+		for surface in map_world._level.mesh.get_surface_count():
+			if map_world._level.mesh.surface_get_material(surface).albedo_texture == MazeWorld.OPEN_DOOR_ART[0]:
+				return true
+		return false
+	check(not shows_open.call(), "no door shows open at first")
+	var lv_one: MazeLevel = g.levels[1]
+	for open_y in MazeLevel.N:
+		for open_x in MazeLevel.N:
+			for open_d in 4:
+				if g.opened.is_empty() and lv_one.wall(open_x, open_y, open_d) == 2:
+					g.open_door(1, open_x, open_y, open_d)
+	map_world.sync_to_party()
+	check(shows_open.call(), "an opened door shows as open")
+	g.opened = {}
+	g.pos = map_pos
+	g.light = map_light
 	print("town map")
 	var saved: Array[int] = g.party.duplicate()
 	g.mode = "castle"
@@ -592,6 +638,66 @@ func _test_start_flow(g, roster_size: int) -> void:
 	check(g.light == 30 and g.party == [hero.id], "a maze save keeps the party and its light")
 	check(get_tree().current_scene.scr.get("where", "") == "Maze · Level 2", "a maze save shows the maze")
 	check(g.outs.is_empty(), "a resumed party is not stranded")
+	var door_lv: MazeLevel = g.levels[2]
+	var door := Vector3i(-1, -1, 0)
+	for door_y in MazeLevel.N:
+		for door_x in MazeLevel.N:
+			for door_d in 4:
+				var far := Vector2i(door_x + MazeLevel.DX[door_d], door_y + MazeLevel.DY[door_d])
+				if door.x < 0 and door_lv.wall(door_x, door_y, door_d) == 2 and door_lv.in_bounds(far.x, far.y):
+					door = Vector3i(door_x, door_y, door_d)
+	var door_far := Vector2i(door.x + MazeLevel.DX[door.z], door.y + MazeLevel.DY[door.z])
+	var door_start := {"x": door.x, "y": door.y, "z": 2, "d": door.z}
+	g.pos = door_start.duplicate()
+	var door_mz = get_tree().current_scene.mz
+	door_mz.forward()
+	check(g.pos["x"] == door_far.x and g.pos["y"] == door_far.y and g.door_open(2, door.x, door.y, door.z), "one push opens a door and walks through")
+	check(g.door_open(2, door_far.x, door_far.y, (door.z + 2) % 4), "an opened door is open from the far side too")
+	g.save_game()
+	g.load_game()
+	check(g.door_open(2, door.x, door.y, door.z), "an opened door stays open after a load")
+
+	# The testing switches on screen.
+	var sw_scene = get_tree().current_scene
+	check(sw_scene.monsters_button.text == "MONSTERS: ON" and sw_scene.god_button.text == "GOD MODE: OFF", "the switches start with monsters on and god mode off")
+	sw_scene.god_button.button_pressed = true
+	sw_scene.monsters_button.button_pressed = false
+	check(g.god_mode and not g.monsters_on, "the switches set god mode and monsters")
+	check(sw_scene.monsters_button.text == "MONSTERS: OFF" and sw_scene.god_button.text == "GOD MODE: ON", "the switches show their state")
+	var god_hero: Character = g.ch(g.party[0])
+	god_hero.status = "OK"
+	var god_hp: int = god_hero.hp
+	var god_battle := Battle.new()
+	god_battle.setup(false, true)
+	for god_round in 25:
+		god_battle.play_round(true)
+	check(god_hero.hp == god_hp and god_hero.status == "OK", "god mode takes no damage or conditions in a fight")
+	sw_scene.fight._hurt(god_hero, 50)
+	check(god_hero.hp == god_hp and god_hero.is_alive(), "god mode takes no damage from traps")
+	var quiet_lv: MazeLevel = g.levels[g.MAZE_LEVELS]
+	var boss_at := Vector2i(-1, -1)
+	for quiet_y in MazeLevel.N:
+		for quiet_x in MazeLevel.N:
+			if quiet_lv.flag(quiet_x, quiet_y, "boss"):
+				boss_at = Vector2i(quiet_x, quiet_y)
+	check(boss_at.x >= 0, "the boss square exists")
+	g.pos = {"x": boss_at.x, "y": boss_at.y, "z": g.MAZE_LEVELS, "d": 0}
+	g.cleared = {}
+	sw_scene.fight.battle = null  # walking through the door above can start one
+	for quiet_step in 300:
+		sw_scene.mz._after_step()
+	check(sw_scene.fight.battle == null, "with monsters off, no fight starts, even on the boss square")
+	sw_scene.monsters_button.button_pressed = true
+	sw_scene.mz._after_step()
+	check(sw_scene.fight.battle != null, "with monsters on, the boss fights again")
+	sw_scene.fight.battle = null
+	sw_scene.god_button.button_pressed = false
+	check(not g.god_mode and g.monsters_on, "the switches go back")
+	g.hurt(god_hero, 1)
+	check(god_hero.hp == god_hp - 1, "damage counts again with god mode off")
+	god_hero.hp = god_hp
+	g.pos = {"x": 3, "y": 4, "z": 2, "d": 1}
+	g.mode = "maze"
 	g.mode = "camp"
 	g.save_game()
 	await _venture_from_title()
@@ -607,6 +713,7 @@ func _test_start_flow(g, roster_size: int) -> void:
 
 	# With nothing saved, Venture Onwards starts a new game at the castle.
 	g.new_game()
+	check(not g.door_open(2, door.x, door.y, door.z), "a new game closes the doors")
 	check(not FileAccess.file_exists(g.save_path), "starting over deletes the save")
 	await _venture_from_title()
 	check(g.roster.is_empty() and g.mode == "castle", "no save starts a new game at the castle")
