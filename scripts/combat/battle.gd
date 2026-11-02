@@ -12,6 +12,9 @@ var surprise := ""  # "party", "mon" or ""
 var cmds: Array = []
 
 
+const MAX_GROUPS := 4  # as many as the fight screen's 2x2 grid holds
+
+
 static func mk_group(id: String, n: int) -> Dictionary:
 	var M: Dictionary = Data.MONS[id]
 	var ms := []
@@ -28,7 +31,11 @@ func setup(is_lair: bool, is_boss: bool) -> void:
 	if boss:
 		groups = [mk_group("WERDNA", 1), mk_group("VAMP", 2)]
 	else:
-		var n := 2 if randf() < (0.45 if lair else 0.22) + 0.08 * (z - 1) else 1
+		var n := 1
+		var chance: float = (0.45 if lair else 0.22) + 0.08 * (z - 1)
+		while n < MAX_GROUPS and randf() < chance:
+			n += 1
+			chance /= 2.0  # each extra group is half as likely as the last
 		var used := []
 		for i in n:
 			var id: String = Dice.pick(Data.MON_BY_LEVEL[z])

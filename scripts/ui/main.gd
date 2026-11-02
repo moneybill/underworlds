@@ -33,6 +33,7 @@ var _party: RichTextLabel
 var _pad: GridContainer
 var monsters_button: Button
 var god_button: Button
+var town_button: Button
 var town_map: TownMap
 var place_image := ""  # the painting of the building the party is in; every screen shows it until cleared
 var _backdrop: TextureRect
@@ -91,6 +92,12 @@ func _build_test_switches() -> void:
 	row.add_child(monsters_button)
 	god_button = _test_switch(Game.god_mode, _set_god)
 	row.add_child(god_button)
+	town_button = Button.new()
+	town_button.text = "TO TOWN"
+	town_button.focus_mode = Control.FOCUS_NONE
+	town_button.add_theme_font_size_override("font_size", 16)
+	town_button.pressed.connect(_teleport_to_town)
+	row.add_child(town_button)
 	_show_test_switches()
 	add_child(row)
 	row.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
@@ -118,7 +125,15 @@ func _set_god(on: bool) -> void:
 	_show_test_switches()
 
 
+## Brings the party home at once, from anywhere in the Maze and even mid-fight, as if it had walked out.
+func _teleport_to_town() -> void:
+	fight.battle = null
+	view.battle = null
+	town.return_to_castle()
+
+
 func _show_test_switches() -> void:
+	town_button.disabled = Game.mode == "castle" or Game.party.is_empty()
 	monsters_button.text = "MONSTERS: %s" % ("ON" if Game.monsters_on else "OFF")
 	god_button.text = "GOD MODE: %s" % ("ON" if Game.god_mode else "OFF")
 
@@ -317,6 +332,7 @@ func show_screen(s: Dictionary) -> void:
 	else:
 		_entry.release_focus()
 	_pad.visible = s.get("pad", false)
+	_show_test_switches()
 	view.show_view(s.get("view", view.kind))
 	render_party()
 	town_map.visible = s.get("map", false)

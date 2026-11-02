@@ -11,14 +11,44 @@ const BLOOD := Color("d6563f")
 const MANA := Color("8bace6")
 const MOSS := Color("93c07e")
 
+## Painted monsters, by their id in Data.MONS. The rest are still drawn by _monster until they have art.
+const MONSTER_ART := {
+	"SLIME": preload("res://assets/images/monsters/slime.webp"),
+	"KOBOLD": preload("res://assets/images/monsters/kobold.webp"),
+	"ORC": preload("res://assets/images/monsters/orc.webp"),
+	"SKEL": preload("res://assets/images/monsters/skeleton.webp"),
+	"RAT": preload("res://assets/images/monsters/rat.webp"),
+	"MIMIC": preload("res://assets/images/monsters/mimic.webp"),
+	# One painting for each kind of caster, whatever their level.
+	"MAGE1": preload("res://assets/images/monsters/mage.webp"),
+	"MAGE3": preload("res://assets/images/monsters/mage.webp"),
+	"MAGE7": preload("res://assets/images/monsters/mage.webp"),
+	"PRIEST1": preload("res://assets/images/monsters/priest.webp"),
+	"PRIEST5": preload("res://assets/images/monsters/priest.webp"),
+}
+const CARD_SINGLE := 320.0  # a lone group of monsters
+const CARD_PAIR := 225.0  # each of two groups, nearly filling the window's width
+const CARD_GRID := 165.0  # each of three or four groups
+const CARD_GAP := 10.0
+const PLAQUE_HEIGHT := 28.0
+const PLAQUE_FILL := Color("2b1f16")
+const PLAQUE_EDGE := Color("a9824a")
+const PLAQUE_FONT_MAX := 18
+const PLAQUE_FONT_MIN := 9
+const BADGE_FONT := 15
+
 var kind := "castle"
 var mono: Font
 var battle: Battle = null
 var world: MazeWorld
+var _targets: Array = []  # the groups that can be clicked now, by their place in battle.groups
+var _on_target := Callable()
+var _hover := -1
 
 
 func _ready() -> void:
 	clip_contents = true
+	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS  # keeps the paintings' ink lines clean when small
 	world = MazeWorld.new()
 	add_child(world)
 	resized.connect(_fit_world)
@@ -29,18 +59,81 @@ func _ready() -> void:
 
 func show_view(k: String) -> void:
 	kind = k
+	_clear_targets()
 	_update_world()
 	queue_redraw()
 
 
 func _shows_maze() -> bool:
-	return kind == "maze" or kind == "camp"
+	return kind == "maze" or kind == "camp" or kind == "combat" or kind == "chest"
 
 
 func _update_world() -> void:
 	if world != null:
 		world.set_active(_shows_maze() and is_visible_in_tree())
 		world.set_campfire(kind == "camp" and is_visible_in_tree())
+
+
+## Lets the player pick one of these monster groups by clicking its card.
+func set_targets(groups: Array, on_pick: Callable) -> void:
+	_targets = groups
+	_on_target = on_pick
+	queue_redraw()
+
+
+func _clear_targets() -> void:
+	_targets = []
+	_on_target = Callable()
+	_hover = -1
+	mouse_default_cursor_shape = Control.CURSOR_ARROW
+
+
+func _gui_input(event: InputEvent) -> void:
+	if _targets.is_empty():
+		return
+	if event is InputEventMouseMotion:
+		var over := _target_at(event.position)
+		if over != _hover:
+			_hover = over
+			mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if over >= 0 else Control.CURSOR_ARROW
+			queue_redraw()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		var picked := _target_at(event.position)
+		if picked >= 0:
+			accept_event()
+			var on_pick := _on_target
+			_clear_targets()
+			on_pick.call(picked)
+
+
+## The group under a point in this control, if it can be picked now, or -1.
+func _target_at(point: Vector2) -> int:
+	if battle == null:
+		return -1
+	var alive_groups := battle.alive_groups()
+	var rects := card_rects(alive_groups.size())
+	for i in rects.size():
+		if rects[i].has_point(canvas_point(point)) and _targets.has(alive_groups[i]):
+			return alive_groups[i]
+	return -1
+
+
+func _canvas_scale() -> float:
+	return min(size.x / W, size.y / H)
+
+
+func _canvas_origin() -> Vector2:
+	return (size - Vector2(W, H) * _canvas_scale()) / 2.0
+
+
+## From this control's pixels to the 480x360 canvas.
+func canvas_point(point: Vector2) -> Vector2:
+	return (point - _canvas_origin()) / _canvas_scale()
+
+
+## And back again.
+func view_point(canvas: Vector2) -> Vector2:
+	return _canvas_origin() + canvas * _canvas_scale()
 
 
 ## Renders the Maze at the window's own pixels, so the art stays sharp.
@@ -51,9 +144,9 @@ func _fit_world() -> void:
 
 
 func _draw() -> void:
-	var sc: float = min(size.x / W, size.y / H)
+	var sc := _canvas_scale()
 	draw_rect(Rect2(Vector2.ZERO, size), Color("05060a"))
-	draw_set_transform(Vector2((size.x - W * sc) / 2.0, (size.y - H * sc) / 2.0), 0.0, Vector2(sc, sc))
+	draw_set_transform(_canvas_origin(), 0.0, Vector2(sc, sc))
 	match kind:
 		"maze": _maze(true)
 		"camp": _camp()
@@ -147,18 +240,19 @@ func _edge() -> void:
 
 
 # ---------- the Maze ----------
-func _maze(with_map: bool) -> void:
+func _maze(with_map: bool, with_signs := true) -> void:
 	var p: Dictionary = Game.pos
 	var lv: MazeLevel = Game.level()
 	if lv.flag(p["x"], p["y"], "dark"):
-		_txt("DARKNESS", 240, 190, 28, Color("3a4159"))
+		if with_signs:
+			_txt("DARKNESS", 240, 190, 28, Color("3a4159"))
 		return
 	world.sync_to_party()
 	draw_texture_rect(world.get_texture(), Rect2(0, 0, W, H), false)
-	if lv.flag(p["x"], p["y"], "up"):
-		_txt("A STAIRCASE LEADS UP", 240, 340, 22, TORCH)
-	if lv.flag(p["x"], p["y"], "down"):
-		_txt("A STAIRCASE LEADS DOWN", 240, 340, 22, TORCH)
+	if with_signs and lv.flag(p["x"], p["y"], "up"):
+		_txt("A LADDER LEADS UP", 240, 340, 22, TORCH)
+	if with_signs and lv.flag(p["x"], p["y"], "down"):
+		_txt("A LADDER LEADS DOWN", 240, 340, 22, TORCH)
 	if with_map and Game.show_map:
 		_map()
 
@@ -211,29 +305,87 @@ func _drawn_campfire() -> void:
 
 # ---------- combat ----------
 func _combat() -> void:
-	draw_rect(Rect2(0, 0, W, H), Color("07080d"))
-	draw_circle(Vector2(240, 220), 180, Color(TORCH, .05))
-	draw_rect(Rect2(0, 290, W, 70), Color("151824"))
+	_maze(false, false)
 	if battle == null:
 		return
 	var alive_groups := battle.alive_groups()
-	var k := alive_groups.size()
-	for i in k:
-		var gi: int = alive_groups[i]
-		var gp: Dictionary = battle.groups[gi]
-		var cx: float = 240.0 if k == 1 else 140.0 + i * (200.0 / max(1, k - 1))
-		var s := 210.0 if k == 1 else 150.0
-		var n := battle.live(gp).size()
-		_monster(Data.MONS[gp["id"]]["look"], cx, 175, s)
-		if n > 1:
-			_txt("x%d" % n, cx, 175 + s * .78, 24, TORCH)
-		var sleeping := true
-		for m in battle.live(gp):
-			if not m["asleep"]:
-				sleeping = false
-		if sleeping:
-			_txt("Z z z", cx + s * .3, 90, 26, MANA)
-		_txt(battle.gname(gp, n), cx, 34, 22, INK)
+	var rects := card_rects(alive_groups.size())
+	for i in rects.size():
+		_monster_card(battle.groups[alive_groups[i]], rects[i])
+		if not _targets.is_empty():
+			_target_mark(alive_groups[i], rects[i])
+
+
+## Where the monster groups go, in order: up to two rows of two, with a lone group larger and in the middle.
+static func card_rects(count: int) -> Array:
+	if count <= 0:
+		return []
+	if count == 1:
+		return [Rect2((W - CARD_SINGLE) / 2.0, (H - CARD_SINGLE) / 2.0, CARD_SINGLE, CARD_SINGLE)]
+	var out := []
+	var rows := 1 if count == 2 else 2
+	var card := CARD_PAIR if count == 2 else CARD_GRID
+	var top := (H - rows * card - (rows - 1) * CARD_GAP) / 2.0
+	for row in rows:
+		var in_row: int = mini(count - row * 2, 2)
+		var left := (W - in_row * card - (in_row - 1) * CARD_GAP) / 2.0
+		for col in in_row:
+			out.append(Rect2(left + col * (card + CARD_GAP), top + row * (card + CARD_GAP), card, card))
+	return out
+
+
+func _monster_card(gp: Dictionary, r: Rect2) -> void:
+	var n := battle.live(gp).size()
+	if MONSTER_ART.has(gp["id"]):
+		draw_texture_rect(MONSTER_ART[gp["id"]], r, false)
+	else:
+		draw_rect(r, Color("14161f"))
+		_monster(Data.MONS[gp["id"]]["look"], r.get_center().x, r.position.y + (r.size.y - PLAQUE_HEIGHT) / 2.0, r.size.x * .62)
+	draw_rect(r, PLAQUE_EDGE, false, 2.0)
+	_plaque(battle.gname(gp, n), Rect2(r.position.x, r.end.y - PLAQUE_HEIGHT, r.size.x, PLAQUE_HEIGHT))
+	if n > 1:
+		_badge("x%d" % n, Vector2(r.end.x, r.position.y), TORCH, true)
+	var sleeping := true
+	for m in battle.live(gp):
+		if not m["asleep"]:
+			sleeping = false
+	if sleeping:
+		_badge("Z z z", r.position, MANA, false)
+
+
+## While choosing: picks glow, the hovered one most, and groups out of reach dim.
+func _target_mark(group: int, r: Rect2) -> void:
+	if not _targets.has(group):
+		draw_rect(r, Color(0, 0, 0, .62))
+	elif group == _hover:
+		draw_rect(r, Color(TORCH, .16))
+		draw_rect(r.grow(1.0), INK, false, 4.0)
+	else:
+		draw_rect(r.grow(1.0), TORCH, false, 3.0)
+
+
+## A riveted bronze plate with the name on it, in the largest size that fits.
+func _plaque(text: String, r: Rect2) -> void:
+	draw_rect(r, PLAQUE_FILL)
+	draw_rect(Rect2(r.position, Vector2(r.size.x, 1.5)), Color(PLAQUE_EDGE, .7))
+	draw_rect(r, PLAQUE_EDGE, false, 2.0)
+	for x in [r.position.x + 7.0, r.end.x - 7.0]:
+		draw_circle(Vector2(x, r.get_center().y), 2.0, PLAQUE_EDGE)
+	var room := r.size.x - 26.0
+	var sz := PLAQUE_FONT_MAX
+	while sz > PLAQUE_FONT_MIN and mono.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x > room:
+		sz -= 1
+	var baseline := r.position.y + (r.size.y + mono.get_ascent(sz) - mono.get_descent(sz)) / 2.0
+	draw_string(mono, Vector2(r.position.x, baseline), text, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, sz, INK)
+
+
+## A small dark tag in a corner of a card, for the count and for sleep.
+func _badge(text: String, corner: Vector2, col: Color, on_right: bool) -> void:
+	var w := mono.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, BADGE_FONT).x + 10.0
+	var r := Rect2(corner.x - w if on_right else corner.x, corner.y, w, 20.0)
+	draw_rect(r, PLAQUE_FILL)
+	draw_rect(r, PLAQUE_EDGE, false, 1.5)
+	draw_string(mono, Vector2(r.position.x, r.end.y - 5.0), text, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, BADGE_FONT, col)
 
 
 func _chest() -> void:
@@ -263,9 +415,6 @@ func _monster(look: String, cx: float, cy: float, s: float) -> void:
 			pts.append(Vector2(cx - s * .55, cy + s * .45))
 			_poly(pts, Color("2d4a3a"), INK)
 			eyes.call(cx, cy + s * .05, s * .18, TORCH)
-		"coin":
-			for i in 5:
-				_circ(Vector2(cx - s * .3 + (i % 3) * s * .3, cy + s * .3 - (i / 3) * s * .3), s * .16, Color("6b5424"))
 		"cloud":
 			for o in [[-.25, 0], [.2, -.1], [0, .15], [.3, .2], [-.3, .25]]:
 				draw_circle(Vector2(cx + o[0] * s, cy + o[1] * s), s * .28, Color(MOSS, .35))

@@ -21,7 +21,7 @@ func enter_maze() -> void:
 	Game.cleared = {}
 	Game.mark_seen()
 	ui.clear_log()
-	Game.say("YOU ARE AT THE FOOT OF THE STAIRS TO THE CASTLE.")
+	Game.say("YOU ARE AT THE FOOT OF THE LADDER TO THE CASTLE.")
 	camp()
 
 
@@ -166,11 +166,11 @@ func _after_step() -> void:
 			ui.fight.encounter(false, false)
 			return
 	if lv.flag(x, y, "up"):
-		ui.yesno("Stairs going up", "These stairs lead back to the Castle. Take them?" if p["z"] == 1 else "Take the stairs up?", _go_up, maze)
+		ui.yesno("Ladder going up", "This ladder leads back to the Castle. Climb it?" if p["z"] == 1 else "Climb the ladder up?", _go_up, maze)
 		ui.view.show_view("maze")
 		return
 	if lv.flag(x, y, "down"):
-		ui.yesno("Stairs going down", "Take the stairs down, deeper into the Maze?", _go_down, maze)
+		ui.yesno("Ladder going down", "Climb down the ladder, deeper into the Maze?", _go_down, maze)
 		ui.view.show_view("maze")
 		return
 	maze()

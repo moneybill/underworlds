@@ -22,6 +22,9 @@ const RARE_FLOOR_ART: Array[Texture2D] = [
 	preload("res://assets/images/maze/floor_crown.webp"),
 	preload("res://assets/images/maze/floor_lion.webp"),
 ]
+const LADDER_UP_ART: Texture2D = preload("res://assets/images/maze/wall_ladder_up.webp")
+const LADDER_HATCH_ART: Texture2D = preload("res://assets/images/maze/ceiling_ladder_hatch.webp")  # its hatch is on its right edge
+const LADDER_DOWN_ART: Texture2D = preload("res://assets/images/maze/floor_ladder_down.webp")
 const CEILING_ART: Array[Texture2D] = [
 	preload("res://assets/images/maze/ceiling_1.webp"),
 	preload("res://assets/images/maze/ceiling_2.webp"),
@@ -35,7 +38,11 @@ const CEILING_ART: Array[Texture2D] = [
 ]
 
 const BRAZIER_ART: Texture2D = preload("res://assets/images/maze/brazier.webp")
-const WEB_FULL: Texture2D = preload("res://assets/images/maze/web_full.png")
+const WEB_FULL: Array[Texture2D] = [
+	preload("res://assets/images/maze/web_full.png"),
+	preload("res://assets/images/maze/web_full_2.png"),
+	preload("res://assets/images/maze/web_full_3.png"),
+]
 const WEB_LEFT: Texture2D = preload("res://assets/images/maze/web_left.png")  # its corner is at the top left
 const WEB_RIGHT: Texture2D = preload("res://assets/images/maze/web_right.png")  # its corner is at the top right
 
@@ -56,7 +63,6 @@ const SPELL_REACH := 13.0  # MILWA and LOMILWA light the Maze farther
 const SPELL_ENERGY := 0.3
 const FLICKER := 0.06
 const AMBIENT := Color(0.025, 0.0225, 0.025)
-const STAIR_MARK := Color("e3a33f")
 
 ## From the Vefects pack, which its licence keeps out of the public repository, so it may be missing.
 const CAMPFIRE_SCENE := "res://Vefects/Free Fire VFX/Particles/VFX_Fire_01_Big.tscn"
@@ -73,6 +79,12 @@ const CAMPFIRE_FLICKER := 0.08
 var _camera: Camera3D
 var _torch: OmniLight3D
 var _level: MeshInstance3D
+# The ways up and down glow alike, so they can be found in the dark. Its colour matches the depths of the pit.
+const LADDER_LIGHT_COLOR := Color(0.28, 0.8, 1.0)
+const LADDER_LIGHT_ENERGY := 0.3
+const LADDER_LIGHT_REACH := 4.0
+const LADDER_LIGHT_HEIGHT := 0.5
+
 # Cobwebs hang across the passage: the full one from wall to wall, the side ones from one wall and the ceiling.
 const WEB_FULL_CHANCE := 16  # percent of squares between two plain walls
 const WEB_SIDE_CHANCE := 14  # percent of squares beside a plain wall
@@ -99,6 +111,9 @@ const BRAZIER_LIGHT_ENERGY := 0.7
 const BRAZIER_LIGHT_REACH := 5.0
 const BRAZIER_FLICKER := 0.1
 
+var _ladder_floor: MeshInstance3D
+var _ladder_light: OmniLight3D
+var _ladder_up_light: OmniLight3D
 var _campfire: Node3D
 var _brazier_holder: Node3D
 var _braziers: Array = []
@@ -128,6 +143,13 @@ func _ready() -> void:
 	add_child(_level)
 	_brazier_holder = Node3D.new()
 	add_child(_brazier_holder)
+	_ladder_floor = MeshInstance3D.new()
+	_ladder_floor.mesh = _ladder_mesh()
+	add_child(_ladder_floor)
+	_ladder_light = _new_ladder_light()
+	_ladder_floor.add_child(_ladder_light)
+	_ladder_up_light = _new_ladder_light()
+	add_child(_ladder_up_light)
 	_camera = Camera3D.new()
 	_camera.keep_aspect = Camera3D.KEEP_WIDTH
 	_camera.fov = CAMERA_FOV
@@ -192,7 +214,9 @@ func sync_to_party() -> void:
 	if p["z"] != _brazier_level:
 		_brazier_level = p["z"]
 		_build_braziers(Game.level())
+		_place_ladder(Game.level())
 	_update_braziers(Vector2i(p["x"], p["y"]))
+	_ladder_floor.rotation.y = camera_yaw(p["d"])  # turns are instant, so this never shows
 	_camera.position = camera_place(Vector2i(p["x"], p["y"]), p["d"])
 	_camera.rotation.y = camera_yaw(p["d"])
 	_torch.omni_range = SPELL_REACH if lit else TORCH_REACH
@@ -202,6 +226,42 @@ func sync_to_party() -> void:
 		_campfire.position = cell_centre(Vector2i(p["x"], p["y"])) + DIRS[p["d"]] * CAMPFIRE_AHEAD * CELL
 		_campfire_light.position = _campfire.position + Vector3.UP * CAMPFIRE_LIGHT_HEIGHT
 	_torch.light_energy = _energy
+
+
+## The ladder tile is apart from the level's mesh, as it turns to read upright whichever way the party faces.
+func _ladder_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var h := CELL / 2.0
+	var east := DIRS[1] * h
+	var north := DIRS[0] * h
+	_quad(st, [north - east, north + east, east - north, -east - north], Vector3.UP, Rect2(0, 0, 1, 1))
+	var mesh := ArrayMesh.new()
+	st.commit(mesh)
+	mesh.surface_set_material(0, _material(LADDER_DOWN_ART))
+	return mesh
+
+
+## Stands the tile and its light on the level's way down, or hides them if it has none.
+func _place_ladder(lv: MazeLevel) -> void:
+	_ladder_floor.visible = lv.flag(lv.down.x, lv.down.y, "down") == true and not lv.flag(lv.down.x, lv.down.y, "dark")
+	_ladder_floor.position = cell_centre(lv.down)
+	_ladder_up_light.visible = false
+	for y in MazeLevel.N:
+		for x in MazeLevel.N:
+			if ladder_up_side(lv, Vector2i(x, y)) >= 0:
+				_ladder_up_light.visible = true
+				_ladder_up_light.position = cell_centre(Vector2i(x, y)) + Vector3.UP * LADDER_LIGHT_HEIGHT
+
+
+func _new_ladder_light() -> OmniLight3D:
+	var light := OmniLight3D.new()
+	light.light_color = LADDER_LIGHT_COLOR
+	light.light_energy = LADDER_LIGHT_ENERGY
+	light.omni_range = LADDER_LIGHT_REACH
+	light.shadow_enabled = true  # or it would shine through the walls
+	light.position = Vector3.UP * LADDER_LIGHT_HEIGHT
+	return light
 
 
 static func cell_centre(c: Vector2i) -> Vector3:
@@ -364,13 +424,13 @@ func _add_square(parts: Dictionary, lv: MazeLevel, c: Vector2i, lit: bool) -> vo
 	var east := DIRS[1] * h
 	var north := DIRS[0] * h
 	var up := Vector3.UP * HEIGHT
-	_quad(_part(parts, _floor_piece(lv.z, c)), [mid - east + north, mid + east + north, mid + east - north, mid - east - north], Vector3.UP, Rect2(0, 0, 1, 1))
-	_quad(_part(parts, _piece(CEILING_ART, lv.z, c, 5)), [mid - east - north + up, mid + east - north + up, mid + east + north + up, mid - east + north + up], Vector3.DOWN, Rect2(0, 0, 1, 1))
-	if lv.flag(c.x, c.y, "up") or lv.flag(c.x, c.y, "down"):
-		for i in [-1, 0, 1]:
-			var z_off: Vector3 = north * (i * 0.5)
-			var lift: Vector3 = Vector3.UP * 0.01
-			_quad(_part(parts, "stairs"), [mid - east * 0.7 + z_off + north * 0.04 + lift, mid + east * 0.7 + z_off + north * 0.04 + lift, mid + east * 0.7 + z_off - north * 0.04 + lift, mid - east * 0.7 + z_off - north * 0.04 + lift], Vector3.UP, Rect2(0, 0, 1, 1))
+	if not lv.flag(c.x, c.y, "down"):
+		_quad(_part(parts, _floor_piece(lv.z, c)), [mid - east + north, mid + east + north, mid + east - north, mid - east - north], Vector3.UP, Rect2(0, 0, 1, 1))
+	var ladder_side := ladder_up_side(lv, c)
+	if ladder_side >= 0:
+		_quad(_part(parts, LADDER_HATCH_ART), ladder_hatch_corners(mid, ladder_side), Vector3.DOWN, Rect2(0, 0, 1, 1))
+	else:
+		_quad(_part(parts, _piece(CEILING_ART, lv.z, c, 5)), [mid - east - north + up, mid + east - north + up, mid + east + north + up, mid - east + north + up], Vector3.DOWN, Rect2(0, 0, 1, 1))
 	for web in web_spots(lv, c):
 		_hang(_part(parts, web["art"]), web["top"], web["width"], web["drop"], web["facing"])
 	for d in 4:
@@ -386,6 +446,8 @@ func _add_square(parts: Dictionary, lv: MazeLevel, c: Vector2i, lit: bool) -> vo
 		var tex := _wall_piece(lv.z, c, d)
 		if code >= 2:
 			tex = _piece(OPEN_DOOR_ART if is_open else DOOR_ART, lv.z, c, d)
+		elif d == ladder_side:
+			tex = LADDER_UP_ART
 		var inset := n * (h - THICKNESS / 2.0)
 		_quad(_part(parts, tex), [mid + inset - r * h + up, mid + inset + r * h + up, mid + inset + r * h, mid + inset - r * h], -n, Rect2(0, 0, 1, 1))
 		# The ends of a wall, seen from a side passage.
@@ -402,6 +464,27 @@ func _add_square(parts: Dictionary, lv: MazeLevel, c: Vector2i, lit: bool) -> vo
 			var b := end + n * h
 			var corners := [a + up, b + up, b, a] if s > 0 else [b + up, a + up, a, b]
 			_quad(_part(parts, _wall_piece(lv.z, c, d)), corners, r * s, Rect2(0, 0, PILLAR_U, 1))
+
+
+## Which wall of a square holds the ladder up, or -1: the plain wall facing the way in, if it can.
+static func ladder_up_side(lv: MazeLevel, c: Vector2i) -> int:
+	if not lv.flag(c.x, c.y, "up"):
+		return -1
+	var any := -1
+	for d in 4:
+		if lv.wall(c.x, c.y, d) == 1:
+			if lv.wall(c.x, c.y, (d + 2) % 4) != 1:
+				return d
+			any = d
+	return any
+
+
+## The ceiling above a ladder up, turned so the hatch in its art is right above the ladder's wall.
+static func ladder_hatch_corners(mid: Vector3, side: int) -> Array:
+	var right := DIRS[side] * CELL / 2.0
+	var down := DIRS[(side + 3) % 4] * CELL / 2.0
+	var up := Vector3.UP * HEIGHT
+	return [mid - right - down + up, mid + right - down + up, mid + right + down + up, mid - right + down + up]
 
 
 ## The cobweb of a square, if it has one: the middle of its top edge, its width and the way it faces.
@@ -423,7 +506,8 @@ static func web_spots(lv: MazeLevel, c: Vector2i) -> Array:
 		var top := cell_centre(c) + Vector3.UP * HEIGHT + facing * shift
 		if roll < WEB_FULL_CHANCE:
 			if left_wall and right_wall:
-				return [{"art": WEB_FULL, "top": top, "width": span, "facing": facing, "drop": web_drop(WEB_FULL, span)}]
+				var full: Texture2D = WEB_FULL[posmod(hash([lv.z, c.x, c.y, "web art"]), WEB_FULL.size())]
+				return [{"art": full, "top": top, "width": span, "facing": facing, "drop": web_drop(full, span)}]
 		elif left_wall and (not right_wall or prefer_left):
 			var into := right * (WEB_SIDE_WIDTH - span) / 2.0
 			return [{"art": WEB_LEFT, "top": top + into, "width": WEB_SIDE_WIDTH, "facing": facing, "drop": web_drop(WEB_LEFT, WEB_SIDE_WIDTH)}]
@@ -475,14 +559,12 @@ func _material(part: Variant) -> StandardMaterial3D:
 	if part is Texture2D:
 		m.albedo_texture = part
 		m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		if part == WEB_FULL or part == WEB_LEFT or part == WEB_RIGHT:
+		if WEB_FULL.has(part) or part == WEB_LEFT or part == WEB_RIGHT:
 			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 			m.cull_mode = BaseMaterial3D.CULL_BACK
-		if CEILING_ART.has(part):
+		if CEILING_ART.has(part) or part == LADDER_HATCH_ART:
 			m.albedo_color = CEILING_TINT
-	elif part == "black":
+	else:
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		m.albedo_color = Color.BLACK
-	else:
-		m.albedo_color = STAIR_MARK
 	return m

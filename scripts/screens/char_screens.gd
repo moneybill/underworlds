@@ -227,7 +227,7 @@ func _camp_cast(c: Character, n: String, item: Dictionary, t: Character, back: C
 		Spells.use_charge(c, item)
 	if Spells.utility(c, n, t) == "dumapic":
 		var p: Dictionary = Game.pos
-		ui.say("Dumapic", "YOUR PARTY IS %d SQUARES EAST AND %d SQUARES NORTH OF THE STAIRS TO THE CASTLE, AND %d LEVEL%s BELOW IT. THE PARTY IS FACING %s." %
+		ui.say("Dumapic", "YOUR PARTY IS %d SQUARES EAST AND %d SQUARES NORTH OF THE LADDER TO THE CASTLE, AND %d LEVEL%s BELOW IT. THE PARTY IS FACING %s." %
 			[p["x"], p["y"], p["z"], "S" if p["z"] > 1 else "", MazeLevel.DIR_NAMES[p["d"]]], back)
 	else:
 		back.call()

@@ -127,12 +127,11 @@ func _choose_group(list: Array, fn: Callable, back: Callable) -> void:
 	if list.size() == 1:
 		fn.call(list[0])
 		return
-	var items := []
-	for g in list:
-		var gp: Dictionary = battle.groups[g]
-		var n := battle.live(gp).size()
-		items.append({"label": "%d %s" % [n, battle.gname(gp, n)], "fn": fn.bind(g)})
-	ui.choose_list("Which group?", groups_text(), items, back)
+	var hint := "Click the monsters to target." if list.size() == battle.alive_groups().size() else "Click the monsters to target. The dimmed ones are out of reach."
+	ui.show_screen({"title": "Choose a target", "where": _where(), "view": "combat", "body": hint + "\n\n" + groups_text(), "opts": [
+		{"k": "L", "label": "BACK", "fn": back},
+	]})
+	ui.view.set_targets(list, fn)
 
 
 func _target_for(n: String, fn: Callable, back: Callable) -> void:

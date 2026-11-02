@@ -142,7 +142,7 @@ const MONS := {
 	"ORC":     {"n": "ORC", "u": "MAN-LIKE CREATURE", "look": "humanoid", "lv": 1, "hp": [3, 9], "ac": 10, "atk": ["1d6"], "xp": 35, "g": [2, 6]},
 	"KOBOLD":  {"n": "KOBOLD", "u": "SMALL HUMANOID", "look": "humanoid", "lv": 1, "hp": [2, 7], "ac": 10, "atk": ["1d4"], "xp": 25, "g": [2, 6], "friendly": true},
 	"SKEL":    {"n": "SKELETON", "u": "SKELETON", "look": "undead", "lv": 1, "hp": [4, 10], "ac": 9, "atk": ["1d6"], "xp": 40, "g": [1, 5], "undead": true},
-	"COINS":   {"n": "CREEPING COINS", "u": "COINS", "look": "coin", "lv": 1, "hp": [2, 6], "ac": 9, "atk": ["1d3"], "xp": 20, "g": [3, 8], "sleep_res": 50},
+	"MIMIC":   {"n": "MIMIC", "u": "CHEST", "look": "mimic", "lv": 1, "hp": [6, 12], "ac": 8, "atk": ["1d6"], "xp": 60, "g": [1, 2], "sleep_res": 50},
 	"RAT":     {"n": "GIANT RAT", "u": "SMALL ANIMAL", "look": "beast", "lv": 1, "hp": [2, 6], "ac": 8, "atk": ["1d3"], "xp": 22, "g": [2, 6]},
 	"MAGE1":   {"n": "LVL 1 MAGE", "u": "MAN IN ROBE", "look": "robe", "lv": 1, "hp": [3, 7], "ac": 10, "atk": ["1d4"], "xp": 50, "g": [1, 3], "sp": ["HALITO", "KATINO"]},
 	"PRIEST1": {"n": "LVL 1 PRIEST", "u": "MAN IN ROBE", "look": "robe", "lv": 1, "hp": [4, 9], "ac": 8, "atk": ["1d6"], "xp": 50, "g": [1, 3], "sp": ["BADIOS", "DIOS"], "friendly": true},
@@ -165,7 +165,7 @@ const MONS := {
 		"sp": ["LAHALITO", "MAHALITO", "MADALTO", "KATINO"], "sleep_res": 100, "boss": true},
 }
 const MON_BY_LEVEL := [[],
-	["SLIME", "ORC", "KOBOLD", "SKEL", "COINS", "RAT", "MAGE1", "PRIEST1"],
+	["SLIME", "ORC", "KOBOLD", "SKEL", "MIMIC", "RAT", "MAGE1", "PRIEST1"],
 	["ZOMBIE", "TOAD", "HWAY", "MAGE3", "SPIDER", "GAS", "SKEL", "ORC"],
 	["GHOUL", "GARG", "PRIEST5", "DRAGPUP", "BUSH", "MAGE3", "ZOMBIE"],
 	["VAMP", "MAGE7", "DAEMON", "GIANT", "GHOUL", "DRAGPUP"],

@@ -322,7 +322,7 @@ func _test_town_map(g) -> void:
 					webs_clear = false
 				var web_side: Vector3 = MazeWorld.web_right(web["facing"])
 				var web_across: float = (web["top"] - MazeWorld.cell_centre(web_cell)).dot(web_side)
-				if web["art"] == MazeWorld.WEB_FULL and (not is_zero_approx(web_across) or not is_equal_approx(web["width"], web_face * 2.0)):
+				if MazeWorld.WEB_FULL.has(web["art"]) and (not is_zero_approx(web_across) or not is_equal_approx(web["width"], web_face * 2.0)):
 					webs_anchored = false
 				if web["art"] == MazeWorld.WEB_LEFT and not is_equal_approx(web_across - web["width"] / 2.0, -web_face):
 					webs_anchored = false
@@ -331,11 +331,47 @@ func _test_town_map(g) -> void:
 				var wall_needed: int = MazeWorld.DIRS.find(web_side) if web["art"] != MazeWorld.WEB_LEFT else MazeWorld.DIRS.find(-web_side)
 				if web_lv.wall(web_x, web_y, wall_needed) != 1:
 					webs_anchored = false
-	check(web_counts.size() == 3, "the full, left and right cobwebs all hang somewhere")
+	check(web_counts.size() == MazeWorld.WEB_FULL.size() + 2, "every full, left and right cobweb hangs somewhere")
 	check(webs_ok, "cobwebs hang from the ceiling and stay in the same places")
 	check(webs_clear, "cobwebs stay above the party's eye line")
 	check(webs_anchored, "cobwebs reach the walls they hang from")
-	print("cobwebs on level 1: full %d, left %d, right %d" % [web_counts.get(MazeWorld.WEB_FULL, 0), web_counts.get(MazeWorld.WEB_LEFT, 0), web_counts.get(MazeWorld.WEB_RIGHT, 0)])
+	print("cobwebs on level 1: full %s, left %d, right %d" % [MazeWorld.WEB_FULL.map(func(art): return web_counts.get(art, 0)), web_counts.get(MazeWorld.WEB_LEFT, 0), web_counts.get(MazeWorld.WEB_RIGHT, 0)])
+	print("monster cards")
+	check(MazeView.card_rects(0).is_empty(), "no groups, no cards")
+	var view_box := Rect2(0, 0, MazeView.W, MazeView.H)
+	for card_count in range(1, Battle.MAX_GROUPS + 1):
+		var cards: Array = MazeView.card_rects(card_count)
+		var cards_ok: bool = cards.size() == card_count
+		for card_a in card_count:
+			cards_ok = cards_ok and view_box.encloses(cards[card_a])
+			for card_b in range(card_a + 1, card_count):
+				cards_ok = cards_ok and not cards[card_a].intersects(cards[card_b])
+		check(cards_ok, "%d groups of monsters fit the window without overlapping" % card_count)
+	var mid_of_view := Vector2(MazeView.W, MazeView.H) / 2.0
+	var one_card: Rect2 = MazeView.card_rects(1)[0]
+	check(one_card.get_center().is_equal_approx(mid_of_view) and one_card.size.x > MazeView.CARD_GRID, "one group is larger and centered")
+	var two_cards: Array = MazeView.card_rects(2)
+	check(is_equal_approx(two_cards[0].get_center().y, mid_of_view.y) and is_equal_approx(two_cards[1].get_center().y, mid_of_view.y) and is_equal_approx((two_cards[0].get_center().x + two_cards[1].get_center().x) / 2.0, mid_of_view.x), "two groups are centered in a row")
+	check(two_cards[0].size.x == MazeView.CARD_PAIR and MazeView.CARD_PAIR > MazeView.CARD_GRID, "two groups are larger than three or four")
+	var three_cards: Array = MazeView.card_rects(3)
+	check(is_equal_approx(three_cards[2].get_center().x, mid_of_view.x) and is_equal_approx((three_cards[0].get_center().x + three_cards[1].get_center().x) / 2.0, mid_of_view.x) and is_equal_approx((three_cards[0].position.y + three_cards[2].end.y) / 2.0, mid_of_view.y), "three groups make two over one, centered")
+	var four_cards: Array = MazeView.card_rects(4)
+	check(four_cards[0].position.y == four_cards[1].position.y and four_cards[2].position.y == four_cards[3].position.y and four_cards[0].position.x == four_cards[2].position.x and four_cards[0].position.y < four_cards[2].position.y, "four groups make a 2x2 grid")
+	var keep_kind: String = main.view.kind
+	for shown_kind in ["combat", "chest"]:
+		main.view.kind = shown_kind
+		check(main.view._shows_maze(), "the Maze stays up behind the %s" % shown_kind)
+	main.view.kind = keep_kind
+	print("monster art")
+	check(Data.MON_BY_LEVEL[1].has("MIMIC") and not Data.MONS.has("COINS"), "the mimic has replaced the creeping coins")
+	var mimic_group := Battle.mk_group("MIMIC", 2)
+	var mimic_battle := Battle.new()
+	check(mimic_battle.gname(mimic_group, 2) == "CHESTS" and mimic_battle.a_name(mimic_group) == "A CHEST", "an unidentified mimic looks like a chest")
+	mimic_group["known"] = true
+	check(mimic_battle.gname(mimic_group, 2) == "MIMICS" and mimic_battle.a_name(mimic_group) == "A MIMIC", "an identified mimic is named")
+	for art_id in MazeView.MONSTER_ART:
+		check(Data.MONS.has(art_id), "the painting %s belongs to a monster" % art_id)
+		check(MazeView.MONSTER_ART[art_id] is Texture2D, "the painting %s loads" % art_id)
 	print("maze in 3D")
 	var turn_button: Button = main._pad.get_child(4)
 	check(turn_button.icon != null and turn_button.text == "", "the turn around button shows its rotate icon")
@@ -379,6 +415,53 @@ func _test_town_map(g) -> void:
 	map_world.sync_to_party()
 	check(map_world._level.mesh != plain_mesh, "light rebuilds the level, to reveal secret doors")
 	check(map_world._torch.omni_range == MazeWorld.SPELL_REACH, "light spells reach farther than the torch")
+	var ladder_in_mesh := false
+	var shows_ladder_up := false
+	for ladder_surface in map_world._level.mesh.get_surface_count():
+		var ladder_mat: StandardMaterial3D = map_world._level.mesh.surface_get_material(ladder_surface)
+		ladder_in_mesh = ladder_in_mesh or ladder_mat.albedo_texture == MazeWorld.LADDER_DOWN_ART
+		shows_ladder_up = shows_ladder_up or ladder_mat.albedo_texture == MazeWorld.LADDER_UP_ART
+	var ladder_lv: MazeLevel = g.levels[1]
+	check(not ladder_in_mesh and map_world._ladder_floor.visible, "the ladder floor stands apart from the level's mesh")
+	check(map_world._ladder_floor.position.is_equal_approx(MazeWorld.cell_centre(ladder_lv.down)), "the ladder floor is on the way down")
+	check(map_world._ladder_light.visible and map_world._ladder_light.shadow_enabled, "the way down has a light that walls block")
+	check(map_world._ladder_up_light.visible and map_world._ladder_up_light.shadow_enabled, "the way up has a light that walls block")
+	check(map_world._ladder_up_light.position.is_equal_approx(MazeWorld.cell_centre(Vector2i(0, 0)) + Vector3.UP * MazeWorld.LADDER_LIGHT_HEIGHT), "the way up's light is on its square")
+	check(map_world._ladder_up_light.light_color == map_world._ladder_light.light_color and map_world._ladder_up_light.light_energy == map_world._ladder_light.light_energy and map_world._ladder_up_light.omni_range == map_world._ladder_light.omni_range, "both ladder lights match")
+	for ladder_d in 4:
+		g.pos["d"] = ladder_d
+		map_world.sync_to_party()
+		check(is_equal_approx(wrapf(map_world._ladder_floor.rotation.y, -PI, PI), wrapf(MazeWorld.camera_yaw(ladder_d), -PI, PI)), "the ladder floor turns with the party, facing %d" % ladder_d)
+	g.pos["d"] = 0
+	var deepest: MazeLevel = g.levels[g.MAZE_LEVELS]
+	g.pos["z"] = g.MAZE_LEVELS
+	map_world.sync_to_party()
+	check(map_world._ladder_floor.visible == (deepest.flag(deepest.down.x, deepest.down.y, "down") == true), "a level with no way down shows no ladder")
+	g.pos["z"] = 1
+	map_world.sync_to_party()
+	check(shows_ladder_up, "the way up shows the ladder wall")
+	for up_z in range(1, g.MAZE_LEVELS + 1):
+		var up_lv: MazeLevel = g.levels[up_z]
+		var up_walls := 0
+		for up_y in MazeLevel.N:
+			for up_x in MazeLevel.N:
+				var up_side := MazeWorld.ladder_up_side(up_lv, Vector2i(up_x, up_y))
+				if up_lv.flag(up_x, up_y, "up"):
+					if up_side >= 0 and up_lv.wall(up_x, up_y, up_side) == 1:
+						up_walls += 1
+				elif up_side != -1:
+					up_walls += 100
+		check(up_walls == 1, "level %d has one ladder wall, on its way up" % up_z)
+	var shows_hatch := false
+	for hatch_surface in map_world._level.mesh.get_surface_count():
+		shows_hatch = shows_hatch or map_world._level.mesh.surface_get_material(hatch_surface).albedo_texture == MazeWorld.LADDER_HATCH_ART
+	check(shows_hatch, "the way up has the hatch ceiling")
+	for hatch_side in 4:
+		var hatch_c: Array = MazeWorld.ladder_hatch_corners(Vector3.ZERO, hatch_side)
+		var hatch_edge: Vector3 = (hatch_c[1] + hatch_c[2]) / 2.0 - Vector3.UP * MazeWorld.HEIGHT
+		check(hatch_edge.is_equal_approx(MazeWorld.DIRS[hatch_side] * MazeWorld.CELL / 2.0), "the hatch sits over the ladder, on side %d" % hatch_side)
+		var hatch_turn: Vector3 = (hatch_c[1] - hatch_c[0]).cross(hatch_c[2] - hatch_c[1])
+		check(hatch_turn.y > 0.0, "the hatch ceiling faces the same way as the others, on side %d" % hatch_side)
 	check(map_world._braziers.size() == MazeWorld.brazier_spots(g.levels[1]).size(), "the level has its braziers standing")
 	var burning_ok := true
 	for burning in map_world._braziers:
@@ -750,6 +833,65 @@ func _test_start_flow(g, roster_size: int) -> void:
 	for god_round in 25:
 		god_battle.play_round(true)
 	check(god_hero.hp == god_hp and god_hero.status == "OK", "god mode takes no damage or conditions in a fight")
+	var most_groups := 0
+	var keep_pos: Dictionary = g.pos.duplicate()
+	g.pos["z"] = g.MAZE_LEVELS
+	for group_try in 400:
+		var group_battle := Battle.new()
+		group_battle.setup(true, false)
+		most_groups = maxi(most_groups, group_battle.groups.size())
+	g.pos = keep_pos
+	check(most_groups > 2 and most_groups <= Battle.MAX_GROUPS, "encounters can bring more than two groups, up to the limit")
+	var four_battle := Battle.new()
+	for four_id in ["ORC", "RAT", "SKEL", "MAGE1"]:
+		four_battle.groups.append(Battle.mk_group(four_id, 2))
+	four_battle.play_round(true)
+	check(four_battle.alive_groups().size() == 4, "four groups can fight a round")
+
+	# Choosing a target by clicking its card.
+	var aim_battle := Battle.new()
+	for aim_id in ["ORC", "RAT", "SKEL"]:
+		aim_battle.groups.append(Battle.mk_group(aim_id, 2))
+	sw_scene.fight.battle = aim_battle
+	sw_scene.view.battle = aim_battle
+	var aimed := [-1, 0]
+	var aim_pick := func(aim_g: int): aimed[0] = aim_g
+	var aim_back := func():  # like the real ones, going back shows another screen
+		aimed[1] += 1
+		sw_scene.show_screen({"title": "Back", "view": "combat", "opts": []})
+	var aim_click := func(canvas: Vector2):
+		var aim_ev := InputEventMouseButton.new()
+		aim_ev.button_index = MOUSE_BUTTON_LEFT
+		aim_ev.pressed = true
+		aim_ev.position = sw_scene.view.view_point(canvas)
+		sw_scene.view._gui_input(aim_ev)
+	var aim_cards: Array = MazeView.card_rects(3)
+	sw_scene.fight._choose_group([0, 1], aim_pick, aim_back)
+	check(sw_scene.scr.get("title", "") == "Choose a target", "the target screen shows")
+	aim_click.call(Vector2(4, 4))
+	check(aimed[0] == -1, "clicking the Maze picks nothing")
+	aim_click.call(aim_cards[2].get_center())
+	check(aimed[0] == -1, "clicking a group out of reach picks nothing")
+	aim_click.call(aim_cards[1].get_center())
+	check(aimed[0] == 1, "clicking a card picks its group")
+	aimed[0] = -1
+	aim_click.call(aim_cards[0].get_center())
+	check(aimed[0] == -1, "once picked, clicks do nothing")
+	sw_scene.fight._choose_group([0, 1], aim_pick, aim_back)
+	sw_scene._run(sw_scene.scr["opts"][0])
+	check(aimed[1] == 1, "back leaves the target screen")
+	aim_click.call(aim_cards[0].get_center())
+	check(aimed[0] == -1, "clicks do nothing after going back")
+	sw_scene.fight._choose_group([2], aim_pick, aim_back)
+	check(aimed[0] == 2, "a lone target is picked without a click")
+	aimed[0] = -1
+	for aim_m in aim_battle.groups[0]["ms"]:
+		aim_m["dead"] = true
+	sw_scene.fight._choose_group([1, 2], aim_pick, aim_back)
+	aim_click.call(MazeView.card_rects(2)[1].get_center())
+	check(aimed[0] == 2, "cards follow the groups still alive")
+	sw_scene.fight.battle = null
+	sw_scene.view.battle = null
 	sw_scene.fight._hurt(god_hero, 50)
 	check(god_hero.hp == god_hp and god_hero.is_alive(), "god mode takes no damage from traps")
 	var quiet_lv: MazeLevel = g.levels[g.MAZE_LEVELS]
@@ -773,6 +915,32 @@ func _test_start_flow(g, roster_size: int) -> void:
 	check(not g.god_mode and g.monsters_on, "the switches go back")
 	g.hurt(god_hero, 1)
 	check(god_hero.hp == god_hp - 1, "damage counts again with god mode off")
+	god_hero.hp = god_hp
+	g.pos = {"x": 3, "y": 4, "z": 2, "d": 1}
+	g.light = 30
+	sw_scene.mz.maze()
+	check(not sw_scene.town_button.disabled, "the town button works in the Maze")
+	var home_gold: int = god_hero.gold
+	var home_xp: int = god_hero.xp
+	var home_items: int = god_hero.items.size()
+	god_hero.hp = god_hp - 3
+	sw_scene.town_button.pressed.emit()
+	check(g.mode == "castle" and sw_scene.scr.get("title", "") == "Castle", "the town button brings the party to the castle")
+	check(god_hero.loc == "CASTLE" and g.party.has(god_hero.id), "the party comes home together")
+	check(god_hero.gold == home_gold and god_hero.xp == home_xp and god_hero.items.size() == home_items and god_hero.hp == god_hp - 3 and god_hero.status == "OK", "the town button costs nothing")
+	check(sw_scene.town_button.disabled, "the town button is off at the castle")
+	sw_scene.mz.camp()
+	check(not sw_scene.town_button.disabled, "the town button works in camp")
+	sw_scene.town_button.pressed.emit()
+	check(g.mode == "castle" and not sw_scene.view.world.has_campfire(), "leaving camp by the town button puts the campfire out")
+	g.pos = {"x": 3, "y": 4, "z": 2, "d": 1}
+	god_hero.loc = "MAZE"
+	sw_scene.fight.encounter(false, false)
+	check(sw_scene.fight.battle != null, "a fight has started")
+	sw_scene.town_button.pressed.emit()
+	check(g.mode == "castle" and sw_scene.fight.battle == null and sw_scene.view.battle == null, "the town button escapes a fight")
+	check(sw_scene.scr.get("title", "") == "Castle", "and shows the castle")
+	god_hero.loc = "MAZE"
 	god_hero.hp = god_hp
 	g.pos = {"x": 3, "y": 4, "z": 2, "d": 1}
 	g.mode = "maze"

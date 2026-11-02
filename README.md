@@ -32,7 +32,7 @@ The game is played entirely with the mouse or touch: click or tap a button. In t
 - **The Castle:** Tavern (alignment-checked parties, divvy gold), Boltac's (buy, sell at half price, uncurse, identify, limited stock), Temple of Cant (raising can fail into ashes, then lost), Adventurer's Inn (five room types).
 - **Equipment:** class restrictions, cursed items, alignment-bound weapons, unidentified finds, rods and potions with charges.
 - **The Maze:** four 20×20 levels with doors, secret doors (revealed by MILWA and LOMILWA), darkness, spinners, graffiti and stairs. Layouts are generated from a fixed seed, so they are the same every game and can be mapped on graph paper.
-- **Combat:** Fight, Parry, Dispell, Spell, Use, Run and Take Back; only the first three party slots fight and take melee hits; surprises, ambushes, friendly encounters, unidentified monsters, experience split among survivors.
+- **Combat:** fought over the Maze view, with up to four monster groups in a 2x2 grid; click a group's card to target it. Fight, Parry, Dispell, Spell, Use, Run and Take Back; only the first three party slots fight and take melee hits, and they can only reach the first two groups; surprises, ambushes, friendly encounters, unidentified monsters, experience split among survivors.
 - **Treasure chests:** seven trap types; disarming means typing the trap's name.
 - **Losing and saving:** wiped-out or quit parties stay OUT in the Maze until rescued with INSPECT AREA or restarted from Utilities. The game saves to `user://underworlds_save.json` as you play, and closing it mid-expedition resumes in the Maze or camp. A fight in progress is not saved.
 
@@ -89,4 +89,4 @@ The campfire and brazier flames come from the **Vefects Free Fire VFX** pack, wh
 
 ## Testing switches
 
-The **Monsters** and **God mode** buttons at the top of every screen are for testing. With monsters off no fights start in the Maze; in god mode the party takes no damage or harmful conditions. Both reset when the game closes.
+The **Monsters**, **God mode** and **To town** buttons at the top of every screen are for testing. With monsters off no fights start in the Maze; in god mode the party takes no damage or harmful conditions; both reset when the game closes. To town brings the party straight home from the Maze, even mid-fight, as if it had walked out.
