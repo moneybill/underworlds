@@ -13,6 +13,13 @@ Create a party at the Training Grounds, gather it at Gilgamesh's Tavern, outfit 
 2. Open Godot 4.7.2, choose **Import**, and select `project.godot` in that folder.
 3. Press **F5** to play.
 
+## Starting the game
+
+The game opens on the title screen. Tap, click or press any key, then choose:
+
+- **Venture Onwards** picks up where you last saved: at the Castle, or at the camp fire on the square where your party was in the Maze. A new game starts at the Castle.
+- **Options** opens the options panel (only a Back button for now).
+
 ## Controls
 
 Every menu works like the original manual: press the letter before the `)` (or click the button).
@@ -33,7 +40,7 @@ Every menu works like the original manual: press the letter before the `)` (or c
 - **The Maze:** four 20×20 levels with doors, secret doors (revealed by MILWA and LOMILWA), darkness, spinners, graffiti and stairs. Layouts are generated from a fixed seed, so they are the same every game and can be mapped on graph paper.
 - **Combat:** Fight, Parry, Dispell, Spell, Use, Run and Take Back; only the first three party slots fight and take melee hits; surprises, ambushes, friendly encounters, unidentified monsters, experience split among survivors.
 - **Treasure chests:** seven trap types; disarming means typing the trap's name.
-- **Losing and saving:** wiped-out or quit parties stay OUT in the Maze until rescued with INSPECT AREA or restarted from Utilities. The game saves to `user://underworlds2_save.json` as you play.
+- **Losing and saving:** wiped-out or quit parties stay OUT in the Maze until rescued with INSPECT AREA or restarted from Utilities. The game saves to `user://underworlds2_save.json` as you play, and Venture Onwards resumes from that save.
 
 ## Project layout
 
@@ -46,6 +53,7 @@ scripts/maze/            Level data, seeded generator, and the drawn first-perso
 scripts/combat/          Battle rules and shared spell effects
 scripts/screens/         Town, character, maze and combat screens
 scripts/ui/main.gd       Layout, theme, and the lettered-menu system
+scripts/ui/title_screen.gd  Title screen, Venture Onwards, and the Options panel
 tools/selftest.gd        Headless smoke test
 ```
 

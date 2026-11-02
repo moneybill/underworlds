@@ -30,7 +30,23 @@ func run() -> int:
 	main = load("res://scenes/main.tscn").instantiate()
 	get_tree().root.add_child(main)
 	await get_tree().process_frame
-	check(main.scr.get("title", "") == "Welcome to the Proving Grounds", "welcome screen on a fresh roster")
+	print("title screen")
+	var t: TitleScreen = main.title
+	check(t != null and t._state == "press", "title screen opens on tap to continue")
+	var tap := InputEventMouseButton.new()
+	tap.button_index = MOUSE_BUTTON_LEFT
+	tap.pressed = true
+	t._gui_input(tap)
+	check(t._state == "menu" and t._menu.visible and not t._prompt.visible, "tap brings in the menu")
+	check(t._venture_btn.text == "Venture Onwards", "first button is Venture Onwards")
+	t._open_options()
+	check(t._options.visible and not t._menu.visible, "Options opens the panel")
+	t._back_btn.pressed.emit()
+	check(t._state == "menu" and t._menu.visible, "Back returns to the menu")
+	t._venture_btn.pressed.emit()
+	await get_tree().process_frame
+	check(main.title == null, "Venture Onwards leaves the title screen")
+	check(main.scr.get("title", "") == "Welcome to the Proving Grounds", "a new game starts at the Castle with the welcome")
 
 	# --- a Hawkwind party ---
 	var specs := [["DERF", "DWARF", "GOOD", {"str": 11, "agi": 9}, "FIGHTER"], ["THOMAS", "HUMAN", "GOOD", {"str": 12}, "FIGHTER"],
@@ -221,6 +237,19 @@ func run() -> int:
 	g.save_game()
 	g.load_game()
 	check(g.roster.size() == n, "save/load keeps the roster")
+
+	print("resume in the maze")
+	g.party.clear()
+	for c in party:
+		c.status = "OK"
+		c.hp = c.maxhp
+		c.loc = "MAZE"
+		g.party.append(c.id)
+	g.pos = {"x": 3, "y": 2, "z": 2, "d": 1}
+	main.mz.camp()
+	check(g.load_game() == "camp" and g.pos["z"] == 2 and g.pos["x"] == 3 and g.party.size() == 6, "a game saved in the Maze resumes at camp on the same square")
+	main.town.castle()
+	check(g.load_game() == "castle", "a game saved in the Castle resumes at the Castle")
 
 	print("SELFTEST DONE, failures: %d" % failures)
 	return failures
