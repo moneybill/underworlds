@@ -167,7 +167,7 @@ func run() -> int:
 	g.party.assign(tavern_few)
 	main.town.tavern()
 	check(tavern_labels.call().is_empty(), "the left panel no longer lists party members or buttons")
-	check(tavern_button.call("ADD") != null and tavern_button.call("REMOVE") == null and tavern_button.call("INSPECT") == null, "with nobody selected, REMOVE and INSPECT stay hidden")
+	check(tavern_button.call("ADD") != null and tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "with nobody selected, DROP and INSPECT stay hidden")
 	check(tavern_button.call("DIVVY GOLD") != null, "DIVVY GOLD sits under the cards")
 	var exit_button := func() -> Button:
 		return main._exit_row.get_child(main._exit_row.get_child_count() - 1)
@@ -183,16 +183,19 @@ func run() -> int:
 	tavern_hit.pressed.emit()
 	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card selects that member")
 	var tavern_row: Control = main._gear_row
-	check(tavern_button.call("ADD").get_parent() == tavern_row.get_child(0) and tavern_button.call("ADD").get_index() == 0 and tavern_button.call("REMOVE").get_index() == 1, "REMOVE sits right of ADD")
+	check(tavern_button.call("ADD").get_parent() == tavern_row.get_child(0) and tavern_button.call("ADD").get_index() == 0 and tavern_button.call("DROP").get_index() == 1, "DROP sits right of ADD")
 	check(tavern_button.call("DIVVY GOLD").get_parent() == tavern_row.get_child(1), "DIVVY GOLD sits in the center")
+	for brown_label in ["ADD", "DROP", "DIVVY GOLD", "INSPECT"]:
+		var brown: Button = tavern_button.call(brown_label)
+		check(brown.get_theme_stylebox("normal").bg_color == main.PAGER_FILL and brown.get_theme_font_size("font_size") == main.PAGER_FONT, "the Tavern's %s is small and brown" % brown_label)
 	check(tavern_button.call("INSPECT").get_parent() == tavern_row.get_child(2), "INSPECT sits at the far right")
 	tavern_button.call("INSPECT").pressed.emit()
 	check(main.scr["title"] == "Inspect" and main.scr["body"].contains(tavern_first.name), "INSPECT opens the selected member")
 	press("L")
 	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "the selection survives inspecting")
-	tavern_button.call("REMOVE").pressed.emit()
-	check(not g.party.has(tavern_first.id) and g.party.size() == tavern_few.size() - 1, "REMOVE removes the selected member")
-	check(tavern_button.call("REMOVE") == null and tavern_button.call("INSPECT") == null, "removing clears the selection")
+	tavern_button.call("DROP").pressed.emit()
+	check(not g.party.has(tavern_first.id) and g.party.size() == tavern_few.size() - 1, "DROP takes the selected member out of the party")
+	check(tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "removing clears the selection")
 	g.party.assign(tavern_party)
 	main.town.tavern()
 	check(g.party.size() == main.town.MAX_PARTY and tavern_button.call("ADD") == null, "a full party hides ADD")
@@ -200,7 +203,7 @@ func run() -> int:
 	main.town.select_member(tavern_first)
 	main.town.castle()
 	main.town.tavern()
-	check(tavern_button.call("REMOVE") == null, "leaving the tavern clears the selection")
+	check(tavern_button.call("DROP") == null, "leaving the tavern clears the selection")
 	main.town.boltac()
 	check(main.scr["body"].contains("cedar shavings"), "Boltac's has its description")
 	check(tavern_labels.call().is_empty() and exit_button.call().text == "EXIT", "Boltac's lists no names and has EXIT in the left panel")
@@ -209,6 +212,9 @@ func run() -> int:
 	main._gear_grid.get_child(1).get_child(1).pressed.emit()
 	check(main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card at Boltac's selects that member")
 	check(tavern_labels.call().is_empty() and tavern_button.call("BUY") != null and tavern_button.call("SELL") != null and tavern_button.call("POOL GOLD") != null, "selecting at Boltac's offers the shop under the cards")
+	for shop_label in ["BUY", "SELL", "POOL GOLD"]:
+		var shop_button: Button = tavern_button.call(shop_label)
+		check(shop_button.get_theme_stylebox("normal").bg_color == main.PAGER_FILL and shop_button.get_theme_font_size("font_size") == main.PAGER_FONT, "Boltac's %s is small and brown" % shop_label)
 	var fee_hero: Character = g.party_chars()[1]
 	var fee_keep: Array = fee_hero.items
 	fee_hero.items = []
@@ -250,6 +256,8 @@ func run() -> int:
 	check(main.scr["body"].contains("# Not usable by this character.") and not main.scr["body"].contains(" GOLD"), "the Buy note drops the gold")
 	check(main.scr["body"].contains("[font_size=18]"), "the Buy note is four sizes smaller")
 	check(pager_labels.call() == ["NEXT", "EXIT"], "the first page has NEXT and EXIT on one row")
+	var pager_spacer: Control = main._pager_row.get_parent().get_child(main._pager_row.get_index() - 1)
+	check(pager_spacer.custom_minimum_size.y + main._opts_col.get_theme_constant("separation") == main.PAGER_DROP, "the row sits 15 lower")
 	var pager_exit: Button = main._pager_row.get_child(main._pager_row.get_child_count() - 1)
 	check(pager_exit.get_index() == main._pager_row.get_child_count() - 1 and main._pager_row.get_child(pager_exit.get_index() - 1).size_flags_horizontal == Control.SIZE_EXPAND_FILL, "EXIT is on the right of the row")
 	check(main._pager_row.get_child(0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "the page buttons are brown")

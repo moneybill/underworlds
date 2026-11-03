@@ -1,6 +1,6 @@
 class_name CharScreens
 extends RefCounted
-## Character screens: inspecting (spell books, equip, drop, trade, identify, camp spells),
+## Character screens: inspecting (spell books, equip, discard, trade, identify, camp spells),
 ## the Training Grounds, character creation, and class changes.
 
 const TRAINING_IMAGE := "res://assets/images/training.webp"
@@ -25,7 +25,7 @@ func inspect(c: Character, from: String, back: Callable) -> void:
 	var again := inspect.bind(c, from, back)
 	ui.show_screen({"title": "Inspect", "body": ui.sheet(c), "portrait": c.portrait_path(), "portrait_dead": not c.is_alive(), "opts": [
 		{"k": "R", "label": "READ", "fn": read_books.bind(c, again)},
-		{"k": "D", "label": "DROP", "hide": not can, "fn": drop_item.bind(c, again)},
+		{"k": "D", "label": "DISCARD", "hide": not can, "fn": discard_item.bind(c, again)},
 		{"k": "P", "label": "POOL GOLD", "hide": not can, "fn": _pool.bind(c, again)},
 		{"k": "I", "label": "IDENTIFY", "hide": not can or not c.cdata().get("ident", false), "fn": bishop_identify.bind(c, again)},
 		{"k": "E", "label": "EQUIP", "hide": not can, "fn": equip_flow.bind(c, again, ["W", "A", "S", "H"])},
@@ -56,19 +56,19 @@ func read_books(c: Character, back: Callable) -> void:
 	ui.say("Spell books", t, back)
 
 
-func drop_item(c: Character, back: Callable) -> void:
+func discard_item(c: Character, back: Callable) -> void:
 	var items := []
 	for it in c.items:
-		items.append({"label": c.item_name(it), "right": "EQUIPPED" if it["eq"] else "", "fn": _drop_one.bind(c, it, back)})
-	ui.choose_list("Drop which item?", ui.flav("Dropped items are gone forever."), items, back)
+		items.append({"label": c.item_name(it), "right": "EQUIPPED" if it["eq"] else "", "fn": _discard_one.bind(c, it, back)})
+	ui.choose_list("Discard which item?", ui.flav("Discarded items are gone forever."), items, back)
 
 
-func _drop_one(c: Character, it: Dictionary, back: Callable) -> void:
+func _discard_one(c: Character, it: Dictionary, back: Callable) -> void:
 	if it["eq"] and it["cursed"]:
 		Game.say("THE %s IS CURSED. IT WILL NOT LET GO." % c.item_name(it), "hit")
 		back.call()
 		return
-	ui.yesno("Drop it?", "Drop the %s for good?" % ui.esc(c.item_name(it)), func(): c.items.erase(it); Game.say("%s DROPS IT." % c.name); back.call(), back)
+	ui.yesno("Discard it?", "Discard the %s for good?" % ui.esc(c.item_name(it)), func(): c.items.erase(it); Game.say("%s DISCARDS IT." % c.name); back.call(), back)
 
 
 func bishop_identify(c: Character, back: Callable) -> void:

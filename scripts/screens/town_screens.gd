@@ -56,10 +56,10 @@ func tavern() -> void:
 		_selected = null
 	var chosen := _selected != null
 	var opts := [
-		{"k": "A", "label": "ADD", "in_widget": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
-		{"k": "R", "label": "REMOVE", "in_widget": true, "hide": not chosen, "fn": _remove.bind(_selected)},
-		{"k": "D", "label": "DIVVY GOLD", "in_widget": true, "gear_at": "center", "dis": ps.is_empty(), "fn": _divvy},
-		{"k": "I", "label": "INSPECT", "in_widget": true, "gear_at": "right", "hide": not chosen, "fn": ui.chars.inspect.bind(_selected, "tavern", tavern)},
+		{"k": "A", "label": "ADD", "in_widget": true, "small": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
+		{"k": "R", "label": "DROP", "in_widget": true, "small": true, "hide": not chosen, "fn": _remove.bind(_selected)},
+		{"k": "D", "label": "DIVVY GOLD", "in_widget": true, "small": true, "gear_at": "center", "dis": ps.is_empty(), "fn": _divvy},
+		{"k": "I", "label": "INSPECT", "in_widget": true, "small": true, "gear_at": "right", "hide": not chosen, "fn": ui.chars.inspect.bind(_selected, "tavern", tavern)},
 		{"k": "L", "label": "EXIT", "fn": castle},
 	]
 	var hint := "Click a party member to select them." if not ps.is_empty() else "Add adventurers to form a party."
@@ -138,11 +138,11 @@ func boltac() -> void:
 		"gear_pick": shop, "gear_hint": "Click a party member to select them.",
 		"body": ui.flav(BOLTAC_TEXT),
 		"opts": [
-			{"k": "B", "label": "BUY", "in_widget": true, "hide": not chosen, "fn": buy.bind(c, 0)},
-			{"k": "S", "label": "SELL", "in_widget": true, "hide": not chosen, "fn": sell.bind(c)},
-			{"k": "U", "label": "UNCURSE", "in_widget": true, "hide": not chosen or _fee_items(c, "U").is_empty(), "fn": fee_service.bind(c, "U")},
-			{"k": "I", "label": "IDENTIFY", "in_widget": true, "hide": not chosen or _fee_items(c, "I").is_empty(), "fn": fee_service.bind(c, "I")},
-			{"k": "P", "label": "POOL GOLD", "in_widget": true, "hide": not chosen, "fn": func(): Game.pool_gold(c); boltac()},
+			{"k": "B", "label": "BUY", "in_widget": true, "small": true, "hide": not chosen, "fn": buy.bind(c, 0)},
+			{"k": "S", "label": "SELL", "in_widget": true, "small": true, "hide": not chosen, "fn": sell.bind(c)},
+			{"k": "U", "label": "UNCURSE", "in_widget": true, "small": true, "hide": not chosen or _fee_items(c, "U").is_empty(), "fn": fee_service.bind(c, "U")},
+			{"k": "I", "label": "IDENTIFY", "in_widget": true, "small": true, "hide": not chosen or _fee_items(c, "I").is_empty(), "fn": fee_service.bind(c, "I")},
+			{"k": "P", "label": "POOL GOLD", "in_widget": true, "small": true, "hide": not chosen, "fn": func(): Game.pool_gold(c); boltac()},
 			{"k": "L", "label": "EXIT", "fn": castle},
 		]})
 

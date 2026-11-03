@@ -11,6 +11,7 @@ const CONFIRM_WIDTH := 560.0
 const CONFIRM_LAYER := 100  # above the test switches
 const CONFIRM_DIM := Color(0, 0, 0, 0.6)
 const GEAR_HINT_FONT := 18  # four sizes under the body text
+const PAGER_DROP := 15.0  # extra room between a list and its row of small buttons
 const PAGER_FONT := 18
 const PAGER_FILL := Color("5a3d24")  # brown, to stand apart from the list above
 const PAGER_EDGE := Color("8a6238")
@@ -383,6 +384,9 @@ func show_screen(s: Dictionary) -> void:
 	_pager_row = null
 	if opts.any(func(o): return o.has("pager")):
 		_pager_row = _pager_buttons(opts)
+		var drop := Control.new()  # the column's own gap counts toward the drop
+		drop.custom_minimum_size.y = PAGER_DROP - _opts_col.get_theme_constant("separation")
+		_opts_col.add_child(drop)
 		_opts_col.add_child(_pager_row)
 	_entry.visible = s.has("input")
 	if s.has("input"):
@@ -444,7 +448,11 @@ func _gear_buttons(opts: Array) -> HBoxContainer:
 		if o.get("hide", false) or not o.get("in_widget", false):
 			continue
 		var at: String = o.get("gear_at", "left")
-		(right if at == "right" else (center if at == "center" else left)).add_child(_gear_button(o))
+		var small: bool = o.get("small", false)
+		var b := _small_button(o, PAGER_FILL, PAGER_EDGE) if small else _gear_button(o)
+		if small:
+			b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		(right if at == "right" else (center if at == "center" else left)).add_child(b)
 	return row
 
 
