@@ -7,6 +7,7 @@ const TRAINING_IMAGE := "res://assets/images/training.webp"
 const PORTRAIT_THUMB := 126.0
 const PORTRAIT_COLUMNS := 4
 const PORTRAITS_PER_PAGE := 12
+const PORTRAIT_TAKEN_TINT := Color(1, 1, 1, 0.2)
 const RACE_POPUP_WIDTH := 340.0
 const STAT_INFO_HINT := "Point at or tap an (i) to see what a statistic does."
 
@@ -22,7 +23,7 @@ func inspect(c: Character, from: String, back: Callable) -> void:
 	var camp := from == "camp"
 	var can := camp or from == "tavern"
 	var again := inspect.bind(c, from, back)
-	ui.show_screen({"title": "Inspect", "body": ui.sheet(c), "portrait": c.portrait_path(), "opts": [
+	ui.show_screen({"title": "Inspect", "body": ui.sheet(c), "portrait": c.portrait_path(), "portrait_dead": not c.is_alive(), "opts": [
 		{"k": "R", "label": "READ", "fn": read_books.bind(c, again)},
 		{"k": "D", "label": "DROP", "hide": not can, "fn": drop_item.bind(c, again)},
 		{"k": "P", "label": "POOL GOLD", "hide": not can, "fn": _pool.bind(c, again)},
@@ -31,7 +32,7 @@ func inspect(c: Character, from: String, back: Callable) -> void:
 		{"k": "T", "label": "TRADE", "hide": not can or Game.party.size() < 2, "fn": trade.bind(c, again)},
 		{"k": "S", "label": "SPELL", "hide": not camp, "dis": not c.can_act(), "fn": camp_spell.bind(c, again)},
 		{"k": "U", "label": "USE", "hide": not camp, "dis": not c.can_act(), "fn": camp_use.bind(c, again)},
-		{"k": "L", "label": "LEAVE", "fn": back},
+		{"k": "L", "label": "EXIT", "fn": back},
 	]})
 
 
@@ -161,7 +162,7 @@ func trade(c: Character, back: Callable) -> void:
 
 func _trade_gold(c: Character, o: Character, back: Callable) -> void:
 	ui.show_screen({"title": "Trade gold", "body": "%s has %d gold. How much to give %s? Leave it blank for none." % [ui.esc(c.name), c.gold, ui.esc(o.name)],
-		"input": {"ph": "AMOUNT", "max": 7, "fn": func(v): _give_gold(c, o, v, back)}, "opts": [{"k": "Escape", "label": "LEAVE", "fn": back}]})
+		"input": {"ph": "AMOUNT", "max": 7, "fn": func(v): _give_gold(c, o, v, back)}, "opts": [{"k": "Escape", "label": "EXIT", "fn": back}]})
 
 
 func _give_gold(c: Character, o: Character, v: String, back: Callable) -> void:
@@ -178,7 +179,7 @@ func _trade_items(c: Character, o: Character, back: Callable) -> void:
 	for it in c.items:
 		if not it["eq"]:
 			items.append({"label": c.item_name(it), "dis": o.items.size() >= 8, "fn": _give_item.bind(c, o, it, back)})
-	ui.choose_list("Trade items", "Give an item to %s, or leave. Equipped items cannot be traded." % ui.esc(o.name), items, back)
+	ui.choose_list("Trade items", "Give an item to %s, or exit. Equipped items cannot be traded." % ui.esc(o.name), items, back)
 
 
 func _give_item(c: Character, o: Character, it: Dictionary, back: Callable) -> void:
@@ -260,7 +261,7 @@ func training() -> void:
 			{"k": "C", "label": "CREATE A CHARACTER", "dis": Game.roster_full(), "fn": create_name},
 			{"k": "I", "label": "INSPECT A CHARACTER", "fn": func(): roster_pick("Inspect whom?", func(_c): return true, train_char, training)},
 			{"k": "R", "label": "ROSTER OF CHARACTERS", "fn": show_roster},
-			{"k": "L", "label": "LEAVE", "fn": ui.town.castle},
+			{"k": "L", "label": "EXIT", "fn": ui.town.castle},
 		]})
 
 
@@ -273,12 +274,12 @@ func show_roster() -> void:
 
 func train_char(c: Character) -> void:
 	var home := c.loc == "CASTLE"
-	ui.show_screen({"title": c.name, "view": "train", "portrait": c.portrait_path(), "body": ui.sheet(c) + ("" if home else "\n" + ui.flav("This adventurer is OUT in the Maze. Bring them home first.")), "opts": [
+	ui.show_screen({"title": c.name, "view": "train", "portrait": c.portrait_path(), "portrait_dead": not c.is_alive(), "body": ui.sheet(c) + ("" if home else "\n" + ui.flav("This adventurer is OUT in the Maze. Bring them home first.")), "opts": [
 		{"k": "R", "label": "READ", "fn": read_books.bind(c, train_char.bind(c))},
 		{"k": "D", "label": "DELETE", "dis": not home, "fn": func(): ui.yesno("Retire to Club Wiz?", "%s will pack up and leave the game forever. Delete?" % ui.esc(c.name), _delete.bind(c), train_char.bind(c))},
 		{"k": "C", "label": "CHANGE CLASS", "dis": not home or not c.is_alive(), "fn": change_class.bind(c)},
 		{"k": "P", "label": "CHANGE PORTRAIT", "fn": change_portrait.bind(c)},
-		{"k": "L", "label": "LEAVE", "fn": training},
+		{"k": "L", "label": "EXIT", "fn": training},
 	]})
 
 
@@ -313,7 +314,7 @@ func _do_change(c: Character, k: String) -> void:
 # ---------- character creation ----------
 func create_name() -> void:
 	ui.show_screen({"title": "Create a character", "view": "train", "body": "Type the new adventurer's name, then choose OK.",
-		"input": {"ph": "NAME", "max": 15, "fn": _name_entered}, "opts": [{"k": "Escape", "label": "LEAVE", "fn": training}]})
+		"input": {"ph": "NAME", "max": 15, "fn": _name_entered}, "opts": [{"k": "Escape", "label": "EXIT", "fn": training}]})
 
 
 func _name_entered(v: String) -> void:
@@ -334,7 +335,7 @@ func create_race(nm: String, selected := "") -> void:
 		if r == selected:
 			btn.add_theme_stylebox_override("normal", UiStyle.box(UiStyle.C_STONE2, UiStyle.C_TORCH, 7))
 		list.add_child(btn)
-	var leave := _race_button("LEAVE", training)
+	var leave := _race_button("EXIT", training)
 	leave.name = "Leave"
 	list.add_child(leave)
 	var s := {"title": "%s: choose a race" % nm, "view": "train", "widget": list, "body": "Pick a race to see its base statistics."}
@@ -401,7 +402,7 @@ func create_align(nm: String, race: String) -> void:
 		{"k": "G", "label": "GOOD", "fn": create_stats.bind(nm, race, "GOOD")},
 		{"k": "N", "label": "NEUTRAL", "fn": create_stats.bind(nm, race, "NEUTRAL")},
 		{"k": "E", "label": "EVIL", "fn": create_stats.bind(nm, race, "EVIL")},
-		{"k": "L", "label": "LEAVE", "fn": training},
+		{"k": "L", "label": "EXIT", "fn": training},
 	]})
 
 
@@ -465,7 +466,7 @@ func create_sex(b: Dictionary, k: String) -> void:
 	ui.show_screen({"title": "%s: male or female?" % b["nm"], "view": "train", "opts": [
 		{"k": "M", "label": "MALE", "fn": create_portrait.bind(b, k, "MALE")},
 		{"k": "F", "label": "FEMALE", "fn": create_portrait.bind(b, k, "FEMALE")},
-		{"k": "L", "label": "LEAVE", "fn": func(): _choose_class(b, Character.eligible(b["st"], b["al"]))},
+		{"k": "L", "label": "EXIT", "fn": func(): _choose_class(b, Character.eligible(b["st"], b["al"]))},
 	]})
 
 
@@ -474,7 +475,7 @@ func create_portrait(b: Dictionary, k: String, sex: String, page := 0) -> void:
 
 
 func change_portrait(c: Character, page := 0) -> void:
-	_portrait_picker(c.name, c.sex, page, _portrait_changed.bind(c), train_char.bind(c))
+	_portrait_picker(c.name, c.sex, page, _portrait_changed.bind(c), train_char.bind(c), c)
 
 
 func _portrait_changed(portrait: String, c: Character) -> void:
@@ -483,8 +484,9 @@ func _portrait_changed(portrait: String, c: Character) -> void:
 	train_char(c)
 
 
-## pick is called with the chosen portrait's name.
-func _portrait_picker(nm: String, sex: String, page: int, pick: Callable, back: Callable) -> void:
+## pick is called with the chosen portrait's name. Portraits other characters have, apart from who, can't be chosen.
+func _portrait_picker(nm: String, sex: String, page: int, pick: Callable, back: Callable, who: Character = null) -> void:
+	var taken := Game.portraits_taken(who)
 	var grid := GridContainer.new()
 	grid.columns = PORTRAIT_COLUMNS
 	var all: Array = Data.portraits(sex)
@@ -497,13 +499,16 @@ func _portrait_picker(nm: String, sex: String, page: int, pick: Callable, back: 
 		btn.custom_minimum_size = Vector2.ONE * PORTRAIT_THUMB
 		btn.focus_mode = Control.FOCUS_NONE
 		btn.pressed.connect(pick.bind(portrait))
+		if taken.has(portrait):
+			btn.disabled = true
+			btn.modulate = PORTRAIT_TAKEN_TINT
 		grid.add_child(btn)
 	ui.show_screen({"title": "%s: choose a portrait" % nm, "view": "train", "widget": grid,
 		"body": "Pick a portrait." + ("  Page %d of %d." % [page + 1, pages] if pages > 1 else ""),
 		"opts": [
-			{"k": "N", "label": "NEXT PAGE", "hide": page + 1 >= pages, "fn": _portrait_picker.bind(nm, sex, page + 1, pick, back)},
-			{"k": "B", "label": "BACK A PAGE", "hide": page == 0, "fn": _portrait_picker.bind(nm, sex, page - 1, pick, back)},
-			{"k": "L", "label": "LEAVE", "fn": back},
+			{"k": "N", "label": "NEXT PAGE", "hide": page + 1 >= pages, "fn": _portrait_picker.bind(nm, sex, page + 1, pick, back, who)},
+			{"k": "B", "label": "BACK A PAGE", "hide": page == 0, "fn": _portrait_picker.bind(nm, sex, page - 1, pick, back, who)},
+			{"k": "L", "label": "EXIT", "fn": back},
 		]})
 
 

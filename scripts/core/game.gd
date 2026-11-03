@@ -5,8 +5,11 @@ extends Node
 signal logged(text: String, kind: String)
 
 const SAVE_PATH := "user://underworlds_save.json"
+const SETTINGS_PATH := "user://settings.cfg"  # apart from the save, so a new game keeps the options
 
 var save_path := SAVE_PATH  # tests point this elsewhere
+var settings_path := SETTINGS_PATH  # and this
+var fast_results := false  # Options: fights move straight on, without pausing on each round's results
 const MAZE_LEVELS := 4
 const MAX_ROSTER := 16
 
@@ -32,6 +35,7 @@ var monsters_on := true  # off: no fights start in the Maze
 
 
 func _ready() -> void:
+	load_settings()
 	reset_state()
 	build_levels()
 
@@ -96,6 +100,15 @@ func living() -> Array[Character]:
 		if c.is_alive():
 			out.append(c)
 	return out
+
+
+## The portraits other characters already have, as {name: true}. who keeps their own available.
+func portraits_taken(who: Character = null) -> Dictionary:
+	var taken := {}
+	for c in roster:
+		if c != who and c.portrait != "":
+			taken[c.portrait] = true
+	return taken
 
 
 func roster_full() -> bool:
@@ -195,6 +208,19 @@ func mark_seen() -> void:
 
 func level() -> MazeLevel:
 	return levels[pos["z"]]
+
+
+# ---------- options ----------
+func load_settings() -> void:
+	var cfg := ConfigFile.new()
+	fast_results = cfg.load(settings_path) == OK and cfg.get_value("combat", "fast_results", false) == true
+
+
+func set_fast_results(on: bool) -> void:
+	fast_results = on
+	var cfg := ConfigFile.new()
+	cfg.set_value("combat", "fast_results", on)
+	cfg.save(settings_path)
 
 
 # ---------- save / load ----------

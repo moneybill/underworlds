@@ -11,6 +11,13 @@ func check(ok: bool, what: String) -> void:
 		print("FAIL: ", what)
 
 
+## The words in the open confirmation window.
+func confirm_text() -> String:
+	if main._confirm_box == null:
+		return ""
+	return " | ".join(main._confirm_box.find_children("*", "Label", true, false).map(func(l): return l.text))
+
+
 func press(k: String) -> bool:
 	for o in main.scr.get("opts", []):
 		if String(o["k"]).to_upper() == k.to_upper() and not o.get("hide", false) and not o.get("dis", false):
@@ -25,10 +32,14 @@ func run() -> int:
 	get_node("/root/Game").logged.connect(func(t, _k): last.append(t); if last.size() > 25: last.pop_front())
 	var g = get_node("/root/Game")
 	g.save_path = "user://selftest_save.json"
+	g.settings_path = "user://selftest_settings.cfg"
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(g.settings_path))
+	g.load_settings()
 	if FileAccess.file_exists(g.save_path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(g.save_path))
 	main = load("res://scenes/main.tscn").instantiate()
 	get_tree().root.add_child(main)
+	main.fight.instant = true
 	await get_tree().process_frame
 	check(main.scr.get("title", "") == "Welcome to the Underworlds", "welcome screen on a fresh roster")
 
@@ -73,7 +84,8 @@ func run() -> int:
 	for c in party:
 		g.party.append(c.id)
 	main.town.tavern()
-	press("1")
+	main.town.select_member(g.party_chars()[0])
+	press("I")
 	check(main.scr["title"] == "Inspect", "inspect from the tavern")
 	press("L")
 	main.town.shop(party[0])
@@ -81,8 +93,20 @@ func run() -> int:
 	press("F")
 	press("B")
 	main.town.buy(party[0], 0)
+	var buy_gold: int = party[0].gold
 	press("4")  # LONG SWORD
+	check(main._confirm_box != null and party[0].items.is_empty(), "buying asks first")
+	check(confirm_text() == "I will haggle no further, this is my best price! | Buy LONG SWORD for 25 GP", "the buy window names the item and price")
+	check(main._confirm_yes.text == "Buy" and main._confirm_no.text == "Not Now", "the buy window's buttons")
+	main._confirm_no.pressed.emit()
+	check(main._confirm_box == null and party[0].items.is_empty() and party[0].gold == buy_gold and main.scr["title"] == "Buy", "Not Now buys nothing and stays on the list")
+	press("4")
+	main._confirm_yes.pressed.emit()
+	check(main._confirm_box == null and party[0].gold == buy_gold - 25, "Buy pays and closes the window")
 	check(party[0].items.size() == 1, "bought a sword (got %d items)" % party[0].items.size())
+	main.town._buy_one(party[0], "staff", 0, false)
+	check(confirm_text().contains("can't use that"), "the buy window warns when the buyer can't use the item")
+	main._confirm_no.pressed.emit()
 	main.town.shop(party[4])
 	press("P")  # pool gold lambda
 	check(party[4].gold > 100, "pooled gold")
@@ -97,8 +121,20 @@ func run() -> int:
 			press("1")
 	check(party[1].equipped("W") != null, "equip flow equips a weapon")
 	main.town.sell(party[5])
+	var sell_item: Dictionary = party[5].items[0]
+	var sell_gold: int = party[5].gold
+	var sell_price: int = main.town._sell_price(party[5], sell_item)
 	press("1")
-	press("Y")
+	check(confirm_text().begins_with("This is my offer, take it or leave it... | Sell %s for %d GP" % [party[5].item_name(sell_item), sell_price]), "the sell window names the item and price")
+	check(main._confirm_yes.text == "Sell" and main._confirm_no.text == "Maybe Later", "the sell window's buttons")
+	check(confirm_text().contains("has that equipped") == sell_item["eq"], "the sell window warns about an equipped item")
+	main._confirm_no.pressed.emit()
+	check(party[5].items.has(sell_item) and party[5].gold == sell_gold and main.scr["title"] == "Sell", "Maybe Later keeps the item and stays on the list")
+	press("1")
+	main._confirm_yes.pressed.emit()
+	check(not party[5].items.has(sell_item) and party[5].gold == sell_gold + sell_price and main._confirm_box == null, "Sell takes the item and pays")
+	var broken_price: Dictionary = {"id": "lsword", "broken": true}
+	check(main.town._sell_price(party[5], broken_price) == 0, "a broken item is worth nothing")
 	party[5].status = "DEAD"
 	main.town.temple()
 	check(main._backdrop.visible, "the temple shows its painting")
@@ -116,23 +152,151 @@ func run() -> int:
 	check(not main._backdrop.visible and main._view_box.visible and main._header.visible, "other screens keep the normal layout")
 	main.town.tavern()
 	var tavern_art: Texture2D = main._backdrop.texture
+	check(main._gear.visible and not main._table.visible, "the tavern shows the party as a grid instead of the table")
+	check(main._gear_grid.get_child_count() == PartyCards.COLUMNS * PartyCards.ROWS, "the tavern's grid has every party slot")
+	var tavern_button := func(label: String) -> Button:
+		for b in main._gear_row.find_children("*", "Button", true, false):
+			if b.text == label:
+				return b
+		return null
+	var tavern_labels := func() -> Array:
+		return main.scr["opts"].filter(func(o): return not o.get("in_widget", false) and not o.get("hide", false) and o["label"] != "EXIT").map(func(o): return o["label"])
+	var tavern_party: Array = g.party.duplicate()
+	var tavern_first: Character = g.party_chars()[0]
+	var tavern_few: Array = tavern_party.slice(0, 3)
+	g.party.assign(tavern_few)
+	main.town.tavern()
+	check(tavern_labels.call().is_empty(), "the left panel no longer lists party members or buttons")
+	check(tavern_button.call("ADD") != null and tavern_button.call("REMOVE") == null and tavern_button.call("INSPECT") == null, "with nobody selected, REMOVE and INSPECT stay hidden")
+	check(tavern_button.call("DIVVY GOLD") != null, "DIVVY GOLD sits under the cards")
+	var exit_button := func() -> Button:
+		return main._exit_row.get_child(main._exit_row.get_child_count() - 1)
+	check(main._exit_row.visible and exit_button.call().text == "EXIT" and tavern_button.call("EXIT") == null, "EXIT sits in the left panel, not under the cards")
+	check(main._exit_row.alignment == BoxContainer.ALIGNMENT_END, "EXIT sits on the right of the left panel")
+	check(not main.scr["body"].contains("Click a party member"), "the hint has left the left panel")
+	var hint_label: Label = main._gear_grid.get_parent().get_child(0)
+	check(hint_label.text == "Click a party member to select them." and hint_label.get_theme_font_size("font_size") == 18, "the hint tops the cards, four sizes smaller")
+	check(exit_button.call().get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL and exit_button.call().get_theme_font_size("font_size") < 22, "the main screen's EXIT is small and red")
+	check(main._exit_row.get_parent() == main._body.get_parent() and main._exit_row.get_index() > main._body.get_index() and main._exit_row.get_index() < main._log.get_index(), "EXIT sits under the text, above the log")
+	var tavern_cell: Control = main._gear_grid.get_child(0)
+	var tavern_hit: Button = tavern_cell.get_child(1)
+	tavern_hit.pressed.emit()
+	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card selects that member")
+	var tavern_row: Control = main._gear_row
+	check(tavern_button.call("ADD").get_parent() == tavern_row.get_child(0) and tavern_button.call("ADD").get_index() == 0 and tavern_button.call("REMOVE").get_index() == 1, "REMOVE sits right of ADD")
+	check(tavern_button.call("DIVVY GOLD").get_parent() == tavern_row.get_child(1), "DIVVY GOLD sits in the center")
+	check(tavern_button.call("INSPECT").get_parent() == tavern_row.get_child(2), "INSPECT sits at the far right")
+	tavern_button.call("INSPECT").pressed.emit()
+	check(main.scr["title"] == "Inspect" and main.scr["body"].contains(tavern_first.name), "INSPECT opens the selected member")
+	press("L")
+	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "the selection survives inspecting")
+	tavern_button.call("REMOVE").pressed.emit()
+	check(not g.party.has(tavern_first.id) and g.party.size() == tavern_few.size() - 1, "REMOVE removes the selected member")
+	check(tavern_button.call("REMOVE") == null and tavern_button.call("INSPECT") == null, "removing clears the selection")
+	g.party.assign(tavern_party)
+	main.town.tavern()
+	check(g.party.size() == main.town.MAX_PARTY and tavern_button.call("ADD") == null, "a full party hides ADD")
+	g.party.assign(tavern_few)
+	main.town.select_member(tavern_first)
+	main.town.castle()
+	main.town.tavern()
+	check(tavern_button.call("REMOVE") == null, "leaving the tavern clears the selection")
+	main.town.boltac()
+	check(main.scr["body"].contains("cedar shavings"), "Boltac's has its description")
+	check(tavern_labels.call().is_empty() and exit_button.call().text == "EXIT", "Boltac's lists no names and has EXIT in the left panel")
+	check(not main.scr["body"].contains("Click a party member") and main._gear_grid.get_parent().get_child(0).text == "Click a party member to select them.", "Boltac's hint tops the cards too")
+	check(tavern_button.call("BUY") == null and tavern_button.call("POOL GOLD") == null, "nobody selected at Boltac's, no shop buttons")
+	main._gear_grid.get_child(1).get_child(1).pressed.emit()
+	check(main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card at Boltac's selects that member")
+	check(tavern_labels.call().is_empty() and tavern_button.call("BUY") != null and tavern_button.call("SELL") != null and tavern_button.call("POOL GOLD") != null, "selecting at Boltac's offers the shop under the cards")
+	var fee_hero: Character = g.party_chars()[1]
+	var fee_keep: Array = fee_hero.items
+	fee_hero.items = []
+	main.town.shop(fee_hero)
+	check(tavern_button.call("UNCURSE") == null and tavern_button.call("IDENTIFY") == null, "no cursed or unknown items, no UNCURSE or IDENTIFY")
+	fee_hero.add_item("lsword", false)
+	main.town.shop(fee_hero)
+	check(tavern_button.call("UNCURSE") == null and tavern_button.call("IDENTIFY") != null, "an unidentified item offers IDENTIFY")
+	fee_hero.items[0]["known"] = true
+	fee_hero.items[0]["cursed"] = true
+	main.town.shop(fee_hero)
+	check(tavern_button.call("UNCURSE") != null and tavern_button.call("IDENTIFY") == null, "a cursed item offers UNCURSE")
+	fee_hero.items = fee_keep
+	main.town.shop(fee_hero)
+	check(not main.scr["body"].contains(" HAS ") and not main.scr["body"].contains("ITEMS "), "Boltac's left panel doesn't repeat the member's gold and items")
+	press("B")
+	check(main.scr["title"] == "Buy" and main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "the buyer stays highlighted while buying")
+	var switch_from: Character = g.party_chars()[1]
+	var switch_to: Character = g.party_chars()[2]
+	main.town.buy(switch_from, 1)
+	check(main._gear_grid.get_child(2).get_child_count() == 2, "another member's card can be clicked while buying")
+	main._gear_grid.get_child(2).get_child(1).pressed.emit()
+	check(main.town._selected == switch_to and main.scr["title"] == "Buy" and main._gear_grid.get_child(2).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card switches the buyer and stays on Buy")
+	check(main._pager_row.get_child(0).text == "PREVIOUS", "switching the buyer keeps the page")
+	var switch_status: String = switch_to.status
+	switch_to.status = "DEAD"
+	main.town.buy(switch_from, 0)
+	check(main._gear_grid.get_child(2).get_child_count() == 1 and main._gear_grid.get_child(1).get_child_count() == 2, "a dead member's card can't be clicked while buying")
+	main.town.sell(switch_from)
+	check(main._gear_grid.get_child(2).get_child_count() == 1 and main._gear_grid.get_child(1).get_child_count() == 2, "nor while selling")
+	switch_to.status = switch_status
+	main.town.sell(switch_from)
+	main._gear_grid.get_child(2).get_child(1).pressed.emit()
+	check(main.town._selected == switch_to and main.scr["title"] == "Sell", "clicking a card switches the seller and stays on Sell")
+	main.town.shop(switch_from)
+	press("B")
+	var pager_labels := func() -> Array:
+		return main._pager_row.get_children().filter(func(n): return n is Button).map(func(n): return n.text)
+	check(main.scr["body"].contains("# Not usable by this character.") and not main.scr["body"].contains(" GOLD"), "the Buy note drops the gold")
+	check(main.scr["body"].contains("[font_size=18]"), "the Buy note is four sizes smaller")
+	check(pager_labels.call() == ["NEXT", "EXIT"], "the first page has NEXT and EXIT on one row")
+	var pager_exit: Button = main._pager_row.get_child(main._pager_row.get_child_count() - 1)
+	check(pager_exit.get_index() == main._pager_row.get_child_count() - 1 and main._pager_row.get_child(pager_exit.get_index() - 1).size_flags_horizontal == Control.SIZE_EXPAND_FILL, "EXIT is on the right of the row")
+	check(main._pager_row.get_child(0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "the page buttons are brown")
+	check(pager_exit.get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL, "EXIT has its own color")
+	check(main._pager_row.get_child(0).get_theme_font_size("font_size") < 22, "the page buttons are smaller")
+	main.town.sell(g.party_chars()[1])
+	check(pager_labels.call() == ["EXIT"] and main._pager_row.get_child(main._pager_row.get_child_count() - 1).get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL, "Sell has the small red EXIT under its list")
+	press("L")
+	press("B")
+	press("F")
+	check(pager_labels.call().slice(0, 2) == ["PREVIOUS", "NEXT"] or pager_labels.call() == ["PREVIOUS", "EXIT"], "later pages offer PREVIOUS first")
+	press("B")
+	press("L")
+	check(main.scr["title"] == "Boltac's Trading Post" and tavern_button.call("BUY") != null, "leaving Buy returns to the shop with the member still selected")
+	main.town.castle()
+	main.town.boltac()
+	check(tavern_button.call("BUY") == null, "coming back to Boltac's starts with nobody selected")
+	g.party.assign(tavern_party)
+	main.town.tavern()
 	check(main._backdrop.visible and tavern_art != temple_art, "the tavern shows its own painting")
 	check(tavern_art != null and absf(float(tavern_art.get_width()) / tavern_art.get_height() - 16.0 / 9.0) < 0.001, "the tavern painting is 16:9")
 	main.chars.roster_pick("Add whom?", main.town._can_add, main.town._add, main.town.tavern)
 	check(main._backdrop.texture == tavern_art, "adding a member keeps the tavern painting")
 	press("L")
+	main.town.select_member(tavern_first)
 	press("R")
 	check(main._backdrop.texture == tavern_art, "removing a member keeps the tavern painting")
-	press("L")
-	press("1")
+	g.party.assign(tavern_party)
+	main.town.select_member(tavern_first)
+	press("I")
 	check(main.scr["title"] == "Inspect" and main._backdrop.texture == tavern_art, "inspecting keeps the tavern painting")
+	var inspect_hero: Character = g.party_chars()[0]
+	var inspect_keep: String = inspect_hero.portrait
+	inspect_hero.portrait = "female_1"
+	main.chars.inspect(inspect_hero, "tavern", main.town.tavern)
+	check(not main._gear.visible and main._portrait.visible, "inspecting gives the grid's place to the portrait")
+	inspect_hero.portrait = inspect_keep
+	main.chars.inspect(inspect_hero, "tavern", main.town.tavern)
 	press("R")
 	check(main._backdrop.texture == tavern_art, "the spell books keep the tavern painting")
 	press("Enter")
 	press("L")
 	check(main.scr["title"] == "Gilgamesh's Tavern", "inspect returns to the tavern")
+	check(main._gear.visible, "the grid comes back after inspecting")
 	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving the tavern clears its painting")
+	check(not main._gear.visible, "leaving the tavern clears the grid")
 	party[5].status = "OK"
 	party[5].hp = party[5].maxhp
 	party[0].xp = 5000
@@ -369,9 +533,46 @@ func _test_town_map(g) -> void:
 	check(mimic_battle.gname(mimic_group, 2) == "CHESTS" and mimic_battle.a_name(mimic_group) == "A CHEST", "an unidentified mimic looks like a chest")
 	mimic_group["known"] = true
 	check(mimic_battle.gname(mimic_group, 2) == "MIMICS" and mimic_battle.a_name(mimic_group) == "A MIMIC", "an identified mimic is named")
+	for new_id in ["TOADMAN", "LIZARD", "BASILISK", "FROST", "FIREG", "GDAEMON", "REDDRAG", "YETI", "SPAWN", "DLORD"]:
+		check(MazeView.MONSTER_ART.has(new_id), "%s has its painting" % new_id)
+		var new_lairs := range(1, Data.MON_BY_LEVEL.size()).filter(func(z): return Data.MON_BY_LEVEL[z].has(new_id))
+		check(not new_lairs.is_empty(), "%s can be met in the Maze" % new_id)
+	for table_z in range(1, Data.MON_BY_LEVEL.size()):
+		for table_id in Data.MON_BY_LEVEL[table_z]:
+			check(Data.MONS.has(table_id), "%s on level %d is a real monster" % [table_id, table_z])
+	var plural_battle := Battle.new()
+	var plural_group: Dictionary = Battle.mk_group("LIZARD", 2)
+	plural_group["known"] = true
+	check(plural_battle.gname(plural_group, 2) == "LIZARDMEN" and plural_battle.gname(plural_group, 1) == "LIZARDMAN", "lizardmen have their own plural")
+	plural_group["known"] = false
+	check(plural_battle.gname(plural_group, 2) == "SCALED HUMANOID", "and keep their vague name until identified")
+	for painted_id in Data.MONS:
+		check(MazeView.MONSTER_ART.has(painted_id), "%s has a painting" % painted_id)
 	for art_id in MazeView.MONSTER_ART:
 		check(Data.MONS.has(art_id), "the painting %s belongs to a monster" % art_id)
 		check(MazeView.MONSTER_ART[art_id] is Texture2D, "the painting %s loads" % art_id)
+	print("chests")
+	var chest_total := 0
+	var chests_ok := true
+	for chest_z in range(1, g.MAZE_LEVELS + 1):
+		var chest_lv: MazeLevel = g.levels[chest_z]
+		var chest_spots: Array = MazeWorld.chest_spots(chest_lv)
+		chest_total += chest_spots.size()
+		var chest_braziers := {}
+		for chest_b in MazeWorld.brazier_spots(chest_lv):
+			chest_braziers[chest_b["c"]] = true
+		for chest_spot in chest_spots:
+			var chest_c: Vector2i = chest_spot["c"]
+			if chest_braziers.has(chest_c) or chest_lv.flag(chest_c.x, chest_c.y, "dark") or chest_lv.flag(chest_c.x, chest_c.y, "up") or chest_lv.flag(chest_c.x, chest_c.y, "down"):
+				chests_ok = false
+			if chest_lv.wall(chest_c.x, chest_c.y, chest_spot["side"]) != 1:
+				chests_ok = false
+			var chest_front: Vector3 = Basis(Vector3.UP, MazeWorld.chest_yaw(chest_spot["side"])) * Vector3(0, 0, 1)
+			if not chest_front.is_equal_approx(-MazeWorld.DIRS[chest_spot["side"]]):
+				chests_ok = false
+	check(chest_total >= 8, "the levels have chests")
+	check(chests_ok, "chests sit against plain walls, face the room, and stay clear of braziers and ladders")
+	print("chests: %d" % chest_total)
 	print("maze in 3D")
 	var turn_button: Button = main._pad.get_child(4)
 	check(turn_button.icon != null and turn_button.text == "", "the turn around button shows its rotate icon")
@@ -463,6 +664,8 @@ func _test_town_map(g) -> void:
 		var hatch_turn: Vector3 = (hatch_c[1] - hatch_c[0]).cross(hatch_c[2] - hatch_c[1])
 		check(hatch_turn.y > 0.0, "the hatch ceiling faces the same way as the others, on side %d" % hatch_side)
 	check(map_world._braziers.size() == MazeWorld.brazier_spots(g.levels[1]).size(), "the level has its braziers standing")
+	check(map_world._chests.size() == MazeWorld.chest_spots(g.levels[1]).size(), "the level has its chests in place")
+	check(map_world._chest_mesh_shared.get_surface_count() == 3, "a chest is a real 3D model, in three colours")
 	var burning_ok := true
 	for burning in map_world._braziers:
 		var burning_near: bool = maxi(absi(burning["c"].x), absi(burning["c"].y)) <= MazeWorld.BRAZIER_NEAR
@@ -568,6 +771,18 @@ func _test_town_map(g) -> void:
 	check(not press("B"), "the first page of portraits has nothing before it")
 	check(press("N") and main.scr["widget"].get_child_count() == 12, "the next page of portraits offers twelve more")
 	var keep_nm: String = picked["nm"]
+	var taken_first: Character = g.roster[0]
+	var taken_keep: String = taken_first.portrait
+	taken_first.portrait = Data.portraits("FEMALE")[12]
+	main.chars.create_portrait(picked, "FIGHTER", "FEMALE", 1)
+	check(main.scr["widget"].get_child(0).disabled and not main.scr["widget"].get_child(1).disabled, "a portrait another character has can't be selected")
+	press("N")
+	press("B")
+	check(main.scr["widget"].get_child(0).disabled, "it stays taken after turning the page")
+	main.chars._portrait_picker(taken_first.name, "FEMALE", 1, func(_p): pass, func(): pass, taken_first)
+	check(not main.scr["widget"].get_child(0).disabled, "a character can keep their own portrait")
+	taken_first.portrait = taken_keep
+	main.chars.create_portrait(picked, "FIGHTER", "FEMALE", 1)
 	main.scr["widget"].get_child(1).pressed.emit()
 	check(picked["portrait"] == "female_14", "clicking a portrait picks from the page on show")
 	check(keep_nm == "PICKED", "picking a portrait keeps the character")
@@ -630,8 +845,41 @@ func _test_town_map(g) -> void:
 	var boltac_art: Texture2D = main._backdrop.texture
 	check(main._backdrop.visible and boltac_art != null, "clicking Boltac's shows its painting")
 	check(absf(float(boltac_art.get_width()) / boltac_art.get_height() - 16.0 / 9.0) < 0.001, "Boltac's painting is 16:9")
-	press("1")
+	check(main._gear.visible and not main._table.visible, "Boltac's shows the party as a grid instead of the table")
+	var gear_hero: Character = g.party_chars()[0]
+	var gear_keep: Array = gear_hero.items
+	gear_hero.items = []
+	main.rerender()
+	var gear_lines := func() -> Array:
+		var cell: Control = main._gear_grid.get_child(0)
+		var out := []
+		for l in cell.get_child(0).get_children():
+			if l is Label:
+				out.append(l.text)
+		return out
+	var gear_seen: Array = gear_lines.call()
+	check(gear_seen.size() == 8 and gear_seen[0] == gear_hero.name, "a card has the name, class, hit points, four lines of gear and gold")
+	check(gear_seen[1] == "LVL %d %s" % [gear_hero.lvl, gear_hero.cls], "a card has the level and class")
+	check(gear_seen[7] == "Gold: %d" % gear_hero.gold, "a card ends with the gold")
+	check(gear_seen[2].contains("HP ") and gear_seen[2].contains("AC "), "a card has hit points and AC")
+	check(gear_seen.slice(3, 7) == ["Weapon: NONE", "Helm: NONE", "Armor: NONE", "Shield: NONE"], "bare slots say NONE, in order")
+	for gear_id in ["lsword", "helm", "chain", "lshield", "pdios"]:
+		gear_hero.add_item(gear_id, true)
+		gear_hero.items[-1]["eq"] = true
+	main.rerender()
+	gear_seen = gear_lines.call()
+	check(gear_seen.slice(3, 7) == ["Weapon: LONG SWORD", "Helm: HELM", "Armor: CHAIN MAIL", "Shield: LARGE SHIELD"], "each slot names what is equipped")
+	gear_hero.items = []
+	gear_hero.add_item("lsword", false)
+	gear_hero.items[-1]["eq"] = true
+	main.rerender()
+	check(gear_lines.call()[3] == "Weapon: SWORD?", "an unidentified weapon keeps its secret")
+	check(main.town._gear_font("Weapon: STAFF OF MOGREF (BROKEN)") < main.town.GEAR_FONT, "a long name shrinks to fit")
+	gear_hero.items = gear_keep
+	main.town.shop(gear_hero)
 	check(main.scr["title"] == "Boltac's Trading Post" and main._backdrop.texture == boltac_art, "the shop keeps the painting")
+	check(main._gear.visible, "the shop keeps the party grid")
+	check(main._gear.position.x >= 16.0 + main.BACKDROP_COLUMN and main._gear.position.y == main.GEAR_TOP, "the party grid sits at the top, right of the store window")
 	press("B")
 	check(main.scr["title"] == "Buy" and main._backdrop.texture == boltac_art, "buying keeps the painting")
 	press("L")
@@ -640,6 +888,12 @@ func _test_town_map(g) -> void:
 	press("L")
 	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving Boltac's clears its painting")
+	check(not main._gear.visible, "leaving Boltac's clears the party grid")
+	check(not main._exit_row.visible and main._pager_row == null, "other screens have no EXIT at the lower left")
+	main.town.temple()
+	check(main._pager_row == null, "the Temple's list keeps its usual EXIT")
+	main.town.castle()
+	check(main._opts_flow.get_children().all(func(b): return not String(b.text).begins_with("LEAVE")), "the buttons say EXIT, not LEAVE")
 	_click_spot("A")
 	var inn_art: Texture2D = main._backdrop.texture
 	check(main._backdrop.visible and inn_art != null and inn_art != boltac_art, "clicking the inn shows its own painting")
@@ -775,6 +1029,15 @@ func _test_start_flow(g, roster_size: int) -> void:
 	# Options opens the panel and Back closes it.
 	title.options_button.pressed.emit()
 	check(title.options_panel.visible and not title.nav.visible, "options opens its panel")
+	check(title.fast_results_button.text == "Fast Combat Results: Off", "fast combat results starts off")
+	title.fast_results_button.pressed.emit()
+	check(g.fast_results and title.fast_results_button.text == "Fast Combat Results: On", "the option turns on")
+	g.load_settings()
+	check(g.fast_results, "the option is remembered")
+	title.fast_results_button.pressed.emit()
+	check(not g.fast_results and title.fast_results_button.text == "Fast Combat Results: Off", "the option turns off")
+	g.load_settings()
+	check(not g.fast_results, "and stays off")
 	title.back_button.pressed.emit()
 	check(not title.options_panel.visible and title.nav.visible, "back returns to the title buttons")
 
@@ -890,6 +1153,172 @@ func _test_start_flow(g, roster_size: int) -> void:
 	sw_scene.fight._choose_group([1, 2], aim_pick, aim_back)
 	aim_click.call(MazeView.card_rects(2)[1].get_center())
 	check(aimed[0] == 2, "cards follow the groups still alive")
+	print("party grid")
+	var turn_battle := Battle.new()
+	turn_battle.groups.append(Battle.mk_group("SKEL", 2))
+	sw_scene.fight.battle = turn_battle
+	sw_scene.view.battle = turn_battle
+	var keep_cls: String = god_hero.cls
+	var keep_lvl: int = god_hero.lvl
+	god_hero.lvl = 13
+	var turn_labels := func(turn_i: int, turn_cls: String) -> Array:
+		god_hero.cls = turn_cls
+		var names := []
+		for turn_o in sw_scene.fight._turn_options(turn_i, god_hero):
+			if turn_o.get("in_widget", false) and not turn_o.get("hide", false):
+				names.append(turn_o["label"])
+		return names
+	check(turn_labels.call(0, "FIGHTER") == ["FIGHT", "PARRY"], "a front row fighter can fight or parry")
+	check(turn_labels.call(3, "FIGHTER") == ["PARRY"], "a back row fighter can only parry")
+	check(turn_labels.call(0, "THIEF") == ["FIGHT", "BACKSTAB", "PARRY"], "a front row thief can backstab")
+	check(turn_labels.call(3, "THIEF") == ["PARRY"], "a back row thief cannot")
+	check(turn_labels.call(3, "MAGE") == ["CAST SPELL", "PARRY"], "a mage can cast from the back row")
+	check(turn_labels.call(3, "PRIEST") == ["CAST SPELL", "DISPEL", "PARRY"], "a priest can cast and dispel")
+	check(turn_labels.call(0, "BISHOP") == ["FIGHT", "CAST SPELL", "DISPEL", "PARRY"], "so can a bishop")
+	check(turn_labels.call(0, "LORD") == ["FIGHT", "PARRY"] and turn_labels.call(0, "SAMURAI") == ["FIGHT", "PARRY"], "lords and samurai only fight and parry")
+	god_hero.cls = "THIEF"
+	var stab_ok := true
+	var stab_hits := 0
+	for stab_try in 200:
+		turn_battle.results = []
+		turn_battle._fight(god_hero, 0, true)
+		for stab_res in turn_battle.results:
+			if stab_res["hit"]:
+				stab_hits += 1
+				stab_ok = stab_ok and stab_res["text"].begins_with("BACKSTABS FOR ") and int(stab_res["text"].split(" ")[2]) % Battle.BACKSTAB_DAMAGE == 0
+		for stab_m in turn_battle.groups[0]["ms"]:
+			stab_m["dead"] = false
+			stab_m["hp"] = 999
+	check(stab_hits > 0 and stab_ok, "a backstab says so, and lands for multiplied damage")
+	sw_scene.fight.next_cmd(0)
+	var turn_grid: GridContainer = sw_scene.scr["widget"]
+	check(turn_grid.columns == 3 and turn_grid.get_child_count() == 6, "the party shows as two rows of three")
+	check(not sw_scene._table.visible, "the party table hides while the grid shows")
+	var grid_buttons := turn_grid.get_child(0).find_children("*", "Button", true, false)
+	check(grid_buttons.size() == 3 and grid_buttons[1].text == "BACKSTAB", "the options sit under the current character's portrait")
+	check(turn_grid.get_child(1).find_children("*", "Button", true, false).is_empty(), "and no one else's")
+	var flow_labels := []
+	for flow_b in sw_scene._opts_flow.get_children():
+		if not flow_b.is_queued_for_deletion():
+			flow_labels.append(flow_b.text)
+	check(not flow_labels.has("PARRY") and not flow_labels.has("USE ITEM") and flow_labels.has("RUN"), "only the party's options sit below the grid")
+	var item_id := ""
+	for item_key in Data.ITEMS:
+		var item_spell = Data.ITEMS[item_key].get("spell")
+		if item_spell != null and "CA".contains(Data.SPELLS[item_spell][2]):
+			item_id = item_key
+	check(item_id != "", "there is a magic item that works in a fight")
+	var magic_item := {"id": item_id}
+	god_hero.items.append(magic_item)
+	var item_labels: Array = turn_labels.call(0, "THIEF")
+	god_hero.items.erase(magic_item)
+	check(item_labels.has("USE ITEM"), "a character with a magic item can use it, under their portrait")
+	check(not turn_labels.call(0, "THIEF").has("USE ITEM"), "one without has no such option")
+	god_hero.cls = "THIEF"
+	sw_scene.fight.next_cmd(0)
+	turn_grid = sw_scene.scr["widget"]
+	grid_buttons = turn_grid.get_child(0).find_children("*", "Button", true, false)
+	grid_buttons[2].pressed.emit()
+	check(turn_battle.cmds.size() == 1 and turn_battle.cmds[0]["type"] == "parry", "a portrait's button gives the order")
+	var back_opts: Array = sw_scene.scr["opts"].filter(func(back_o): return back_o["label"] == "BACK" and not back_o.get("hide", false))
+	check(back_opts.size() == 1, "back appears once an order is given")
+	sw_scene._run(back_opts[0])
+	check(turn_battle.cmds.is_empty(), "back takes back the order")
+	check(sw_scene.fight._active == 0 and sw_scene.scr.get("title", "") == "%s's options" % god_hero.name, "back returns to that character")
+	var alive_grid: GridContainer = sw_scene.fight._party_grid()
+	check(alive_grid.get_child(0).find_child("Tombstone", true, false) == null, "the living have no tombstone")
+	alive_grid.free()
+	var keep_status: String = god_hero.status
+	god_hero.status = "DEAD"
+	var tomb_grid: GridContainer = sw_scene.fight._party_grid()
+	check(tomb_grid.get_child(0).find_child("Tombstone", true, false) != null, "the dead have a tombstone on their portrait")
+	check(tomb_grid.get_child(0).get_theme_stylebox("panel").bg_color == PartyCards.DEAD_FILL, "a dead character's box is shaded red")
+	god_hero.status = keep_status
+	var alive_grid2: GridContainer = sw_scene.fight._party_grid()
+	check(alive_grid2.get_child(0).get_theme_stylebox("panel").bg_color != PartyCards.DEAD_FILL, "a living character's box is not")
+	alive_grid2.free()
+	tomb_grid.free()
+	god_hero.status = keep_status
+	god_hero.cls = keep_cls
+	god_hero.lvl = keep_lvl
+	sw_scene.mz.maze()
+	check(sw_scene._table.visible, "the party table returns after the fight")
+	print("attack sounds")
+	check(CombatScreens.ATTACK_SOUNDS["SLIME"].size() == 4, "the slime has its four attack sounds")
+	for sfx_stream in CombatScreens.ATTACK_SOUNDS["SLIME"]:
+		check(sfx_stream is AudioStreamWAV and sfx_stream.get_length() > 1.0, "a slime sound loads")
+	var sfx_fight: CombatScreens = sw_scene.fight
+	var sfx_start := func(sfx_id: String, sfx_n: int) -> Battle:
+		var sfx_b := Battle.new()
+		sfx_b.groups.append(Battle.mk_group(sfx_id, sfx_n))
+		sfx_b.round_no = 1
+		sfx_fight.battle = sfx_b
+		sw_scene.view.battle = sfx_b
+		sfx_fight.sounds_played = 0
+		sfx_fight._fight_round()
+		return sfx_b
+	sfx_start.call("SLIME", 5)
+	check(sfx_fight.sounds_played == 1 and sw_scene.view._results.size() == 1, "the first attack's sound and result come together")
+	sw_scene.view._process(MazeView.STEP_GAP - 0.1)
+	check(sfx_fight.sounds_played == 1, "the next attack waits its turn")
+	sw_scene.view._process(0.2)
+	check(sfx_fight.sounds_played == 2 and sw_scene.view._results.size() == 2, "the next attack brings its own sound and result")
+	sfx_start.call("RAT", 3)
+	check(sfx_fight.sounds_played == 0 and sw_scene.view._results.size() == 1, "monsters without sounds still show their attack")
+	var mon_res: Dictionary = sw_scene.view._results[0]
+	check((String(mon_res["who"]).begins_with("HITS ") and String(mon_res["text"]).ends_with(" DAMAGE")) or mon_res["who"] == "MISSES", "a monster's attack says what it did")
+	sw_scene.view.show_view("combat")
+	sw_scene.view._process(MazeView.STEP_GAP + 0.1)
+	check(sfx_fight.sounds_played == 0 and sw_scene.view._results.is_empty(), "leaving stops the round")
+	print("fight results")
+	var res_battle := Battle.new()
+	res_battle.groups.append(Battle.mk_group("ORC", 2))
+	res_battle.groups.append(Battle.mk_group("RAT", 2))
+	res_battle.round_no = 1
+	sw_scene.fight.battle = res_battle
+	sw_scene.view.battle = res_battle
+	for res_try in 30:
+		res_battle.results = []
+		res_battle._fight(god_hero, 1)
+		if res_battle.alive_groups().has(1):
+			check(res_battle.results.size() == 1 and res_battle.results[0]["g"] == 1, "an attack leaves one result on its target")
+			var res_text: String = res_battle.results[0]["text"]
+			check((res_text == "MISSES!" and not res_battle.results[0]["hit"]) or (res_text.begins_with("HITS FOR ") and res_text.ends_with(" DAMAGE") and res_battle.results[0]["hit"]), "the result reads MISSES! or HITS FOR x DAMAGE")
+			check(res_battle.results[0]["who"] == god_hero.name, "the result names the attacker")
+		for res_m in res_battle.groups[1]["ms"]:
+			res_m["dead"] = false
+			res_m["hp"] = 5
+	for res_gp in res_battle.groups:  # none of them can die, so all four monsters get their attack
+		for res_m in res_gp["ms"]:
+			res_m["hp"] = 9999
+	res_battle.cmds = [{"c": god_hero, "type": "fight", "g": 0}]
+	sw_scene.fight._fight_round()
+	check(sw_scene.scr.get("title", "") == "Round 1" and sw_scene.view._results.size() == 1, "a round starts with one attack showing")
+	var res_steps := 0
+	while sw_scene.scr.get("title", "") == "Round 1" and res_steps < 200:
+		sw_scene.view._process(0.2)
+		res_steps += 1
+	check(res_steps > 8 and res_steps < 200 and sw_scene.view._results.is_empty(), "the fight moves on once the round has played and faded")
+	check(res_battle.results.size() >= 4, "every attack in the round has a result")
+	var hold_calls := [0]
+	sw_scene.view.show_results([0], [{"g": 0, "text": "MISSES!", "hit": false}], func(): hold_calls[0] += 1)
+	sw_scene.view._process(MazeView.RESULT_HOLD + MazeView.RESULT_FADE - 0.1)
+	check(hold_calls[0] == 0, "a result stays up for its time")
+	sw_scene.view._process(0.2)
+	check(hold_calls[0] == 1, "then fades")
+	g.fast_results = true
+	sw_scene.view.show_results([0], [{"g": 0, "text": "MISSES!", "hit": false}], func(): hold_calls[0] += 1)
+	sw_scene.view._process(MazeView.FAST_RESULT_HOLD + MazeView.FAST_RESULT_FADE - 0.1)
+	check(hold_calls[0] == 1, "fast combat results still shows the result")
+	sw_scene.view._process(0.2)
+	check(hold_calls[0] == 2, "for half a second")
+	check(sw_scene.view._step_gap() == MazeView.FAST_STEP_GAP, "and attacks come faster")
+	g.fast_results = false
+	var res_calls := [0]
+	sw_scene.view.show_results([0], [{"g": 0, "text": "MISS!", "hit": false}], func(): res_calls[0] += 1)
+	sw_scene.view.show_view("combat")
+	sw_scene.view._process(5.0)
+	check(res_calls[0] == 0 and sw_scene.view._results.is_empty(), "leaving cancels the results")
 	sw_scene.fight.battle = null
 	sw_scene.view.battle = null
 	sw_scene.fight._hurt(god_hero, 50)
@@ -975,7 +1404,10 @@ func _test_start_flow(g, roster_size: int) -> void:
 	check(get_tree().current_scene.scr.get("title", "") == "Your party is wiped out" and g.party.is_empty(), "a dead party resumes as wiped out")
 
 	# With nothing saved, Venture Onwards starts a new game at the castle.
+	g.set_fast_results(true)
 	g.new_game()
+	check(g.fast_results, "a new game keeps the options")
+	g.set_fast_results(false)
 	check(not g.door_open(2, door.x, door.y, door.z), "a new game closes the doors")
 	check(not FileAccess.file_exists(g.save_path), "starting over deletes the save")
 	await _venture_from_title()

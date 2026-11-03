@@ -3,6 +3,7 @@ extends RefCounted
 ## The game's palette, fonts and theme, shared by the start-up screens and the game itself.
 
 const C_BG := Color("0f1119")
+const TOMBSTONE: Texture2D = preload("res://assets/images/tombstone.webp")
 const C_STONE := Color("191d29")
 const C_STONE2 := Color("222738")
 const C_LINE := Color("3a4159")
@@ -28,6 +29,20 @@ static func _font_or_system(path: String, names: Array) -> Font:
 	var f := SystemFont.new()
 	f.font_names = PackedStringArray(names)
 	return f
+
+
+## Stands a tombstone over a dead character's portrait, and returns it.
+static func add_tombstone(portrait: Control) -> TextureRect:
+	var tomb := TextureRect.new()
+	tomb.name = "Tombstone"
+	tomb.texture = TOMBSTONE
+	tomb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tomb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tomb.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	tomb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tomb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	portrait.add_child(tomb)
+	return tomb
 
 
 static func box(bg: Color, border: Color, pad := 8) -> StyleBoxFlat:

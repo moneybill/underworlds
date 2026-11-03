@@ -16,6 +16,7 @@ var venture_button: Button
 var options_button: Button
 var options_panel: Control
 var back_button: Button
+var fast_results_button: Button
 var _tap: Label
 var _t := 0.0
 var _pressed := false
@@ -72,6 +73,8 @@ func _build_options() -> void:
 	heading.add_theme_font_size_override("font_size", 38)
 	heading.add_theme_color_override("font_color", UiStyle.C_TORCH)
 	v.add_child(heading)
+	fast_results_button = _button("", "xlarge", _toggle_fast_results, v)
+	_show_fast_results()
 	back_button = _button("Back", "medium", _show_options.bind(false), v)
 
 
@@ -134,6 +137,15 @@ func _input(event: InputEvent) -> void:
 func _show_options(on: bool) -> void:
 	options_panel.visible = on
 	nav.visible = not on
+
+
+func _toggle_fast_results() -> void:
+	Game.set_fast_results(not Game.fast_results)
+	_show_fast_results()
+
+
+func _show_fast_results() -> void:
+	fast_results_button.text = "Fast Combat Results: %s" % ("On" if Game.fast_results else "Off")
 
 
 ## The game scene loads the save, or starts at the castle when there isn't one.

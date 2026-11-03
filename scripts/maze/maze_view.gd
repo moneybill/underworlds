@@ -19,6 +19,29 @@ const MONSTER_ART := {
 	"SKEL": preload("res://assets/images/monsters/skeleton.webp"),
 	"RAT": preload("res://assets/images/monsters/rat.webp"),
 	"MIMIC": preload("res://assets/images/monsters/mimic.webp"),
+	"ZOMBIE": preload("res://assets/images/monsters/zombie.webp"),
+	"GHOUL": preload("res://assets/images/monsters/ghoul.webp"),
+	"HWAY": preload("res://assets/images/monsters/highwayman.webp"),
+	"BUSH": preload("res://assets/images/monsters/bushwacker.webp"),
+	"GARG": preload("res://assets/images/monsters/gargoyle.webp"),
+	"YETI": preload("res://assets/images/monsters/yeti.webp"),
+	"SPAWN": preload("res://assets/images/monsters/vampire_spawn.webp"),
+	"DLORD": preload("res://assets/images/monsters/daemon_lord.webp"),
+	"SPIDER": preload("res://assets/images/monsters/spider.webp"),
+	"TOAD": preload("res://assets/images/monsters/toad.webp"),
+	"GAS": preload("res://assets/images/monsters/gas_cloud.webp"),
+	"DAEMON": preload("res://assets/images/monsters/minor_daemon.webp"),
+	"GIANT": preload("res://assets/images/monsters/hill_giant.webp"),
+	"VAMP": preload("res://assets/images/monsters/vampire.webp"),
+	"WERDNA": preload("res://assets/images/monsters/werdna.webp"),
+	"TOADMAN": preload("res://assets/images/monsters/toadfolk_scout.webp"),
+	"LIZARD": preload("res://assets/images/monsters/lizardman.webp"),
+	"BASILISK": preload("res://assets/images/monsters/basilisk.webp"),
+	"FROST": preload("res://assets/images/monsters/frost_giant.webp"),
+	"FIREG": preload("res://assets/images/monsters/fire_giant.webp"),
+	"GDAEMON": preload("res://assets/images/monsters/greater_daemon.webp"),
+	"REDDRAG": preload("res://assets/images/monsters/red_dragon.webp"),
+	"DRAGPUP": preload("res://assets/images/monsters/dragon_puppy.webp"),
 	# One painting for each kind of caster, whatever their level.
 	"MAGE1": preload("res://assets/images/monsters/mage.webp"),
 	"MAGE3": preload("res://assets/images/monsters/mage.webp"),
@@ -36,6 +59,15 @@ const PLAQUE_EDGE := Color("a9824a")
 const PLAQUE_FONT_MAX := 18
 const PLAQUE_FONT_MIN := 9
 const BADGE_FONT := 15
+const RESULT_HOLD := 2.0  # seconds a fight result stays up
+const RESULT_FADE := 0.5  # and then takes to fade out
+const FAST_RESULT_HOLD := 0.25  # the same, with Fast Combat Results on
+const FAST_RESULT_FADE := 0.25
+const STEP_GAP := 0.8  # seconds between attacks in a round
+const FAST_STEP_GAP := 0.2
+const RESULT_FONT := 20
+const RESULT_WRAP_FONT := 12  # smaller than this and the result breaks onto two lines instead
+const RESULT_LINE := 30.0
 
 var kind := "castle"
 var mono: Font
@@ -44,6 +76,12 @@ var world: MazeWorld
 var _targets: Array = []  # the groups that can be clicked now, by their place in battle.groups
 var _on_target := Callable()
 var _hover := -1
+var _results: Array = []  # what is showing on the monsters now
+var _result_groups: Array = []  # the groups the results are for, kept on screen even if just killed
+var _result_time := 0.0
+var _on_results_done := Callable()
+var _step := Callable()  # plays the next attack of a round
+var _next_step := 0.0
 
 
 func _ready() -> void:
@@ -54,12 +92,14 @@ func _ready() -> void:
 	resized.connect(_fit_world)
 	get_viewport().size_changed.connect(_fit_world)
 	visibility_changed.connect(_update_world)
+	set_process(false)
 	_fit_world()
 
 
 func show_view(k: String) -> void:
 	kind = k
 	_clear_targets()
+	_clear_results()
 	_update_world()
 	queue_redraw()
 
@@ -72,6 +112,77 @@ func _update_world() -> void:
 	if world != null:
 		world.set_active(_shows_maze() and is_visible_in_tree())
 		world.set_campfire(kind == "camp" and is_visible_in_tree())
+
+
+## Shows results on their monsters, then calls on_done. Showing another screen cancels this.
+func show_results(groups: Array, results: Array, on_done: Callable) -> void:
+	start_steps(groups, Callable())
+	for res in results:
+		add_result(res)
+	_on_results_done = on_done
+
+
+## Plays a round: step is called now and then every so often, until it calls end_steps.
+func start_steps(groups: Array, step: Callable) -> void:
+	_result_groups = groups
+	_results = []
+	_result_time = 0.0
+	_step = step
+	_next_step = _step_gap()
+	_on_results_done = Callable()
+	set_process(true)
+	queue_redraw()
+	if _step.is_valid():
+		_step.call()
+
+
+## Each result keeps its own time, so the next attack needn't wait for it to fade.
+func add_result(res: Dictionary) -> void:
+	var shown := res.duplicate()
+	shown["born"] = _result_time
+	_results.append(shown)
+	queue_redraw()
+
+
+## No more steps: on_done is called once the last results have faded.
+func end_steps(on_done: Callable) -> void:
+	_step = Callable()
+	_on_results_done = on_done
+
+
+func _step_gap() -> float:
+	return FAST_STEP_GAP if Game.fast_results else STEP_GAP
+
+
+func _result_hold() -> float:
+	return FAST_RESULT_HOLD if Game.fast_results else RESULT_HOLD
+
+
+func _result_fade() -> float:
+	return FAST_RESULT_FADE if Game.fast_results else RESULT_FADE
+
+
+func _clear_results() -> void:
+	_results = []
+	_result_groups = []
+	_step = Callable()
+	_on_results_done = Callable()
+	set_process(false)
+
+
+func _process(delta: float) -> void:
+	_result_time += delta
+	queue_redraw()
+	var life := _result_hold() + _result_fade()
+	_results = _results.filter(func(res): return _result_time - res["born"] < life)
+	if _step.is_valid():
+		if _result_time >= _next_step:
+			_next_step = _result_time + _step_gap()
+			_step.call()
+	elif _results.is_empty() and _on_results_done.is_valid():
+		var on_done := _on_results_done
+		_clear_results()
+		on_done.call()
 
 
 ## Lets the player pick one of these monster groups by clicking its card.
@@ -308,10 +419,11 @@ func _combat() -> void:
 	_maze(false, false)
 	if battle == null:
 		return
-	var alive_groups := battle.alive_groups()
+	var alive_groups := _result_groups if not _result_groups.is_empty() else battle.alive_groups()
 	var rects := card_rects(alive_groups.size())
 	for i in rects.size():
 		_monster_card(battle.groups[alive_groups[i]], rects[i])
+		_show_results_on(alive_groups[i], rects[i])
 		if not _targets.is_empty():
 			_target_mark(alive_groups[i], rects[i])
 
@@ -343,6 +455,9 @@ func _monster_card(gp: Dictionary, r: Rect2) -> void:
 		_monster(Data.MONS[gp["id"]]["look"], r.get_center().x, r.position.y + (r.size.y - PLAQUE_HEIGHT) / 2.0, r.size.x * .62)
 	draw_rect(r, PLAQUE_EDGE, false, 2.0)
 	_plaque(battle.gname(gp, n), Rect2(r.position.x, r.end.y - PLAQUE_HEIGHT, r.size.x, PLAQUE_HEIGHT))
+	if n == 0:
+		draw_rect(r, Color(0, 0, 0, .6))  # all killed, until the results are done
+		return
 	if n > 1:
 		_badge("x%d" % n, Vector2(r.end.x, r.position.y), TORCH, true)
 	var sleeping := true
@@ -351,6 +466,43 @@ func _monster_card(gp: Dictionary, r: Rect2) -> void:
 			sleeping = false
 	if sleeping:
 		_badge("Z z z", r.position, MANA, false)
+
+
+## This group's results, stacked and centered on the creature, above its plaque.
+func _show_results_on(group: int, r: Rect2) -> void:
+	var room := r.size.x - 16.0
+	var lines := []
+	for res in _results:
+		if res["g"] != group:
+			continue
+		var who: String = res.get("who", "")
+		var full := (who + " " + String(res["text"])).strip_edges()
+		if who != "" and _result_font(full, room) < RESULT_WRAP_FONT:
+			lines.append({"text": who, "hit": res["hit"], "born": res["born"]})  # a long name takes a line of its own
+			lines.append({"text": res["text"], "hit": res["hit"], "born": res["born"]})
+		else:
+			lines.append({"text": full, "hit": res["hit"], "born": res["born"]})
+	if lines.is_empty():
+		return
+	var free_height := r.size.y - PLAQUE_HEIGHT
+	var line_height := minf(RESULT_LINE, free_height / lines.size())
+	var y := r.position.y + (free_height - lines.size() * line_height) / 2.0
+	for line in lines:
+		var alpha := clampf(1.0 - (_result_time - line["born"] - _result_hold()) / _result_fade(), 0.0, 1.0)
+		var sz := _result_font(line["text"], room)
+		draw_rect(Rect2(r.position.x + 2.0, y, r.size.x - 4.0, line_height), Color(0, 0, 0, .72 * alpha))
+		var baseline := y + (line_height + mono.get_ascent(sz) - mono.get_descent(sz)) / 2.0
+		var col: Color = BLOOD if line["hit"] else INK
+		draw_string(mono, Vector2(r.position.x, baseline), line["text"], HORIZONTAL_ALIGNMENT_CENTER, r.size.x, sz, Color(col, alpha))
+		y += line_height
+
+
+## The largest size at which this text fits the room.
+func _result_font(text: String, room: float) -> int:
+	var sz := RESULT_FONT
+	while sz > PLAQUE_FONT_MIN and mono.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x > room:
+		sz -= 1
+	return sz
 
 
 ## While choosing: picks glow, the hovered one most, and groups out of reach dim.

@@ -13,6 +13,8 @@ var cmds: Array = []
 
 
 const MAX_GROUPS := 4  # as many as the fight screen's 2x2 grid holds
+const BACKSTAB_AIM := 3  # harder to land than a plain attack
+const BACKSTAB_DAMAGE := 2  # but this many times the damage
 
 
 static func mk_group(id: String, n: int) -> Dictionary:
@@ -24,6 +26,11 @@ static func mk_group(id: String, n: int) -> Dictionary:
 
 
 ## Rolls up an encounter for the current Maze level.
+var attacks: Array = []  # the id of each monster that made a melee attack this round, for its sound
+var _acts: Array = []  # what is left to happen this round, in order
+var results: Array = []  # what the party's attacks did this round, to show on the monsters: {g, who, text, hit}
+
+
 func setup(is_lair: bool, is_boss: bool) -> void:
 	lair = is_lair
 	boss = is_boss
@@ -69,6 +76,8 @@ func alive_groups() -> Array:
 func gname(gp: Dictionary, n: int) -> String:
 	var M: Dictionary = Data.MONS[gp["id"]]
 	var s: String = M["n"] if gp["known"] or Game.latumapic else M["u"]
+	if n > 1 and s == M["n"] and M.has("pl"):
+		return M["pl"]
 	if n > 1 and not s.contains(" ") and not s.ends_with("S"):
 		s += "S"
 	return s
@@ -96,27 +105,44 @@ func combat_spells(c: Character) -> Array:
 # ---------- a round ----------
 ## Returns "fled", "victory", "wiped" or "next".
 func resolve(run: bool) -> String:
-	var mon_only := false
 	if run:
-		var avg := 0.0
-		for c in Game.party_chars():
-			avg += c.lvl
-		avg /= max(1, Game.party.size())
-		var mx := 1
-		for gi in alive_groups():
-			mx = maxi(mx, Data.MONS[groups[gi]["id"]]["lv"])
-		var pct := 0.0 if boss else clampf(55 + 6 * (avg - mx), 15, 95)
-		if Dice.chance(pct):
-			Game.say("YOU FLEE!", "ok")
-			_cleanup()
+		if try_run():
 			return "fled"
-		Game.say("A WALL OF FORCE BLOCKS YOUR ESCAPE!" if boss else "YOU COULD NOT GET AWAY!", "hit")
-		mon_only = true
-	return play_round(mon_only)
+		return play_round(true)
+	return play_round(false)
 
 
+## The party tries to get away; if it can't, the monsters get a round to themselves.
+func try_run() -> bool:
+	var avg := 0.0
+	for c in Game.party_chars():
+		avg += c.lvl
+	avg /= max(1, Game.party.size())
+	var mx := 1
+	for gi in alive_groups():
+		mx = maxi(mx, Data.MONS[groups[gi]["id"]]["lv"])
+	var pct := 0.0 if boss else clampf(55 + 6 * (avg - mx), 15, 95)
+	if Dice.chance(pct):
+		Game.say("YOU FLEE!", "ok")
+		_cleanup()
+		return true
+	Game.say("A WALL OF FORCE BLOCKS YOUR ESCAPE!" if boss else "YOU COULD NOT GET AWAY!", "hit")
+	return false
+
+
+## A whole round in one go.
 func play_round(mon_only: bool) -> String:
-	var acts := []
+	begin_round(mon_only)
+	while has_next_act():
+		step()
+	return finish_round()
+
+
+## Rolls who acts when. Then step() plays one act at a time, and finish_round() ends the round.
+func begin_round(mon_only: bool) -> void:
+	results = []
+	attacks = []
+	_acts = []
 	if not mon_only:
 		for a in cmds:
 			if a["type"] == "parry":
@@ -124,20 +150,29 @@ func play_round(mon_only: bool) -> String:
 			else:
 				var o: Dictionary = a.duplicate()
 				o["init"] = Dice.rnd(1, 10) + Character.agi_init(a["c"].stats["agi"])
-				acts.append(o)
+				_acts.append(o)
 	if not (surprise == "party" and round_no == 1 and not mon_only):
 		for gp in groups:
 			for m in gp["ms"]:
 				if not m["dead"]:
-					acts.append({"mon": true, "gp": gp, "m": m, "init": Dice.rnd(1, 10) - Data.MONS[gp["id"]]["lv"] / 3})
-	acts.sort_custom(func(a, b): return a["init"] < b["init"])
-	for a in acts:
-		if alive_groups().is_empty() or Game.living().is_empty():
-			break
-		if a.get("mon", false):
-			_mon_act(a["gp"], a["m"])
-		else:
-			_party_act(a)
+					_acts.append({"mon": true, "gp": gp, "m": m, "init": Dice.rnd(1, 10) - Data.MONS[gp["id"]]["lv"] / 3})
+	_acts.sort_custom(func(a, b): return a["init"] < b["init"])
+
+
+func has_next_act() -> bool:
+	return not _acts.is_empty() and not alive_groups().is_empty() and not Game.living().is_empty()
+
+
+func step() -> void:
+	var a: Dictionary = _acts.pop_front()
+	if a.get("mon", false):
+		_mon_act(a["gp"], a["m"])
+	else:
+		_party_act(a)
+
+
+func finish_round() -> String:
+	_acts = []
 	return _end_of_round()
 
 
@@ -207,6 +242,7 @@ func _party_act(a: Dictionary) -> void:
 		return
 	match a["type"]:
 		"fight": _fight(c, a.get("g", 0))
+		"backstab": _fight(c, a.get("g", 0), true)
 		"dispel":
 			var gp: Dictionary = groups[a["g"]]
 			var k := 0
@@ -231,7 +267,7 @@ func _party_act(a: Dictionary) -> void:
 			_cast(c, a["n"], a.get("t"))
 
 
-func _fight(c: Character, g: int) -> void:
+func _fight(c: Character, g: int, backstab := false) -> void:
 	var gp = _target_group(g)
 	if gp == null:
 		return
@@ -243,6 +279,8 @@ func _fight(c: Character, g: int) -> void:
 	var hb: int = (1 + c.lvl / 2 if war else c.lvl / 3) + Character.str_bonus(c.stats["str"]) + int(p.get("hit", 0))
 	if wpn != null and wpn.get("bad", false):
 		hb -= 3
+	if backstab:
+		hb -= BACKSTAB_AIM
 	var swings: int = 1 + (c.lvl / 5 if war else 0) + (1 if c.cdata().get("ninja", false) and wpn == null else 0)
 	var hits := 0
 	var dmg := 0
@@ -263,14 +301,18 @@ func _fight(c: Character, g: int) -> void:
 				crit = true
 				continue
 			var d := maxi(1, Dice.roll(dice) + Character.str_bonus(c.stats["str"]))
+			if backstab:
+				d *= BACKSTAB_DAMAGE
 			dmg += d
 			if _hurt(tgt, d):
 				killed += 1
 	var nm := a_name(gp)
+	var shown := "MISSES!" if hits == 0 else ("%s FOR %d DAMAGE" % ["BACKSTABS" if backstab else "HITS", dmg] if dmg > 0 else "LANDS A CRITICAL HIT!")
+	results.append({"g": groups.find(gp), "who": c.name, "text": shown, "hit": hits > 0})
 	if hits == 0:
 		Game.say("%s SWINGS AT %s AND MISSES." % [c.name, nm])
 		return
-	var line := "%s STRIKES %s. A CRITICAL HIT!" % [c.name, nm] if crit else "%s HITS %s %s FOR %d DAMAGE!" % [c.name, nm, "%d TIMES" % hits if hits > 1 else "ONCE", dmg]
+	var line := "%s STRIKES %s. A CRITICAL HIT!" % [c.name, nm] if crit else "%s %s %s %s FOR %d DAMAGE!" % [c.name, "BACKSTABS" if backstab else "HITS", nm, "%d TIMES" % hits if hits > 1 else "ONCE", dmg]
 	if killed > 0:
 		line += " %s KILLED!" % ("%d ARE" % killed if killed > 1 else "IT IS")
 	Game.say(line, "ok" if killed > 0 else "")
@@ -410,6 +452,7 @@ func _mon_act(gp: Dictionary, m: Dictionary) -> void:
 				t.status = "POISON"
 				Game.say("%s IS POISONED!" % t.name, "hit")
 		return
+	attacks.append(gp["id"])
 	var front: Array = Game.party_chars().slice(0, 3).filter(func(c): return c.is_alive())
 	var t: Character = Dice.pick(front if not front.is_empty() else ps)
 	var hits := 0
@@ -422,8 +465,10 @@ func _mon_act(gp: Dictionary, m: Dictionary) -> void:
 			dmg += d
 			Game.hurt(t, d)
 	if hits == 0:
+		results.append({"g": groups.find(gp), "who": "MISSES", "text": t.name + "!", "hit": false})
 		Game.say("%s ATTACKS %s AND MISSES." % [nm, t.name])
 		return
+	results.append({"g": groups.find(gp), "who": "HITS " + t.name, "text": "FOR %d DAMAGE" % dmg, "hit": true})
 	Game.say("%s HITS %s %s FOR %d DAMAGE." % [nm, t.name, "%d TIMES" % hits if hits > 1 else "ONCE", dmg], "hit")
 	if t.hp <= 0:
 		t.hp = 0

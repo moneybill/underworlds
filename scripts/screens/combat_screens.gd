@@ -3,7 +3,19 @@ extends RefCounted
 ## Combat orders (Fight, Parry, Dispell, Spell, Use, Run, Take back), friendly encounters,
 ## and treasure chests with their traps.
 
+## Melee attack sounds, by monster id in Data.MONS. Each attack picks one at random.
+const ATTACK_SOUNDS := {
+	"SLIME": [
+		preload("res://assets/audio/monsters/slime_attack_1.wav"),
+		preload("res://assets/audio/monsters/slime_attack_2.wav"),
+		preload("res://assets/audio/monsters/slime_attack_3.wav"),
+		preload("res://assets/audio/monsters/slime_attack_4.wav"),
+	],
+}
+
 var ui
+var instant := false  # tests play rounds in one go
+var sounds_played := 0
 var battle: Battle = null
 var chest: Dictionary = {}
 
@@ -14,6 +26,13 @@ func _init(root) -> void:
 
 func _where() -> String:
 	return "Maze · Level %d" % Game.pos["z"]
+
+
+const FRONT_ROW := PartyCards.COLUMNS  # party slots in each row
+const CASTERS := ["MAGE", "PRIEST", "BISHOP"]  # may cast in a fight
+const DISPELLERS := ["PRIEST", "BISHOP"]
+
+var _active := -1  # the party slot choosing its orders, or -1
 
 
 func encounter(is_lair: bool, is_boss: bool) -> void:
@@ -34,7 +53,7 @@ func encounter(is_lair: bool, is_boss: bool) -> void:
 	elif r > 0.88:
 		battle.surprise = "mon"
 		Game.say("THE MONSTERS SURPRISED YOU!", "hit")
-		_after(battle.play_round(true))
+		_run_round(true)
 		return
 	start_round()
 
@@ -97,21 +116,108 @@ func next_cmd(i: int) -> void:
 	if i >= ps.size():
 		_confirm()
 		return
-	var c: Character = ps[i]
-	var front := i < 3
+	_active = i
+	ui.show_screen({"title": "%s's options" % ps[i].name, "where": _where(), "view": "combat", "widget": _party_grid(_turn_options(i, ps[i])), "party_grid": true, "opts": _turn_options(i, ps[i])})
+
+
+## What a character can do goes under their portrait. Run and Back are for the whole party, and sit below it.
+func _turn_options(i: int, c: Character) -> Array:
+	var front := i < FRONT_ROW
 	var again := next_cmd.bind(i)
 	var no_magic := battle.surprise == "party" and battle.round_no == 1
 	var undead := battle.alive_groups().filter(func(g): return Data.MONS[battle.groups[g]["id"]].get("undead", false))
 	var usable := c.items.filter(func(it): return c.item_def(it).has("spell") and not it.get("broken", false) and "CA".contains(Data.SPELLS[c.item_def(it)["spell"]][2]))
-	ui.show_screen({"title": "%s's options" % c.name, "where": _where(), "view": "combat", "body": groups_text(), "opts": [
-		{"k": "F", "label": "FIGHT", "hide": not front, "fn": _choose_group.bind(battle.alive_groups().slice(0, 2), _order.bind(i, c, "fight"), again)},
-		{"k": "P", "label": "PARRY", "fn": _push.bind(i, {"c": c, "type": "parry"})},
-		{"k": "D", "label": "DISPELL", "hide": not battle.can_dispel(c), "dis": undead.is_empty() or no_magic, "fn": _choose_group.bind(undead, _order.bind(i, c, "dispel"), again)},
-		{"k": "S", "label": "SPELL", "hide": c.spells.is_empty(), "dis": no_magic or battle.combat_spells(c).is_empty(), "fn": _pick_spell.bind(i, c)},
-		{"k": "U", "label": "USE", "dis": usable.is_empty() or no_magic, "fn": _pick_item.bind(i, c, usable)},
-		{"k": "R", "label": "RUN", "fn": func(): _after(battle.resolve(true))},
-		{"k": "T", "label": "TAKE BACK", "hide": battle.cmds.is_empty(), "fn": func(): battle.cmds = []; next_cmd(0)},
-	]})
+	var reach: Array = battle.alive_groups().slice(0, 2)
+	return [
+		{"k": "F", "label": "FIGHT", "in_widget": true, "hide": not front, "fn": _choose_group.bind(reach, _order.bind(i, c, "fight"), again)},
+		{"k": "B", "label": "BACKSTAB", "in_widget": true, "hide": not front or c.cls != "THIEF", "fn": _choose_group.bind(reach, _order.bind(i, c, "backstab"), again)},
+		{"k": "S", "label": "CAST SPELL", "in_widget": true, "hide": not CASTERS.has(c.cls), "dis": no_magic or battle.combat_spells(c).is_empty(), "fn": _pick_spell.bind(i, c)},
+		{"k": "D", "label": "DISPEL", "in_widget": true, "hide": not DISPELLERS.has(c.cls), "dis": not battle.can_dispel(c) or undead.is_empty() or no_magic, "fn": _choose_group.bind(undead, _order.bind(i, c, "dispel"), again)},
+		{"k": "P", "label": "PARRY", "in_widget": true, "fn": _push.bind(i, {"c": c, "type": "parry"})},
+		{"k": "U", "label": "USE ITEM", "in_widget": true, "hide": usable.is_empty(), "dis": no_magic, "fn": _pick_item.bind(i, c, usable)},
+		{"k": "R", "label": "RUN", "fn": _run},
+		{"k": "T", "label": "BACK", "hide": battle.cmds.is_empty(), "fn": _undo_order},
+	]
+
+
+## The party, with the current character's options under their portrait.
+func _party_grid(opts: Array = []) -> GridContainer:
+	return PartyCards.grid(_fill_cell.bind(opts), _active, 3)
+
+
+func _fill_cell(v: VBoxContainer, c: Character, i: int, opts: Array) -> void:
+	PartyCards.add_head(v, c)
+	var state := "" if c.status == "OK" else c.status
+	for order in battle.cmds:
+		if order["c"] == c:
+			state = String(order["type"]).to_upper()
+	v.add_child(PartyCards.label(state, UiStyle.C_TORCH))
+	if i != _active:
+		return
+	for o in opts:
+		if o.get("in_widget", false) and not o.get("hide", false):
+			var b := Button.new()
+			b.text = o["label"]
+			b.disabled = o.get("dis", false)
+			b.focus_mode = Control.FOCUS_NONE
+			b.add_theme_font_size_override("font_size", 16)
+			for st in ["normal", "hover", "disabled"]:
+				b.add_theme_stylebox_override(st, UiStyle.box(UiStyle.C_STONE if st == "disabled" else UiStyle.C_STONE2, UiStyle.C_LINE if st != "hover" else UiStyle.C_DIM, 3))
+			b.add_theme_stylebox_override("pressed", UiStyle.box(UiStyle.C_TORCH, UiStyle.C_TORCH, 3))
+			b.pressed.connect(ui._run.bind(o))
+			v.add_child(b)
+
+
+## Plays the round the party has ordered.
+func _fight_round() -> void:
+	_run_round(false)
+
+
+## Plays a round one attack at a time, so each result and sound comes as it happens.
+func _run_round(mon_only: bool) -> void:
+	if instant:
+		_after(battle.play_round(mon_only))
+		return
+	_active = -1
+	var shown := battle.alive_groups()
+	battle.begin_round(mon_only)
+	var title := "The monsters attack!" if mon_only else "Round %d" % battle.round_no
+	ui.show_screen({"title": title, "where": _where(), "view": "combat", "widget": _party_grid(), "party_grid": true, "opts": []})
+	ui.view.start_steps(shown, _step_round)
+
+
+## The next act that shows or sounds; acts that do neither just go in the log.
+func _step_round() -> void:
+	while battle.has_next_act():
+		var old_results: int = battle.results.size()
+		var old_attacks: int = battle.attacks.size()
+		battle.step()
+		if battle.results.size() == old_results and battle.attacks.size() == old_attacks:
+			continue
+		for res in battle.results.slice(old_results):
+			ui.view.add_result(res)
+		for id in battle.attacks.slice(old_attacks):
+			if ATTACK_SOUNDS.has(id):
+				ui.play_sound(ATTACK_SOUNDS[id].pick_random())
+				sounds_played += 1
+		_show_party()
+		return
+	var outcome := battle.finish_round()
+	_show_party()
+	ui.view.end_steps(_after.bind(outcome))
+
+
+## Redraws the party's portraits, as hits land during a round.
+func _show_party() -> void:
+	for n in ui.widget_box().get_children():
+		n.queue_free()
+	ui.widget_box().add_child(_party_grid())
+
+
+## Takes back the last order given, and returns to that character.
+func _undo_order() -> void:
+	var last: Dictionary = battle.cmds.pop_back()
+	next_cmd(Game.party_chars().find(last["c"]))
 
 
 func _push(i: int, order: Dictionary) -> void:
@@ -128,7 +234,7 @@ func _choose_group(list: Array, fn: Callable, back: Callable) -> void:
 		fn.call(list[0])
 		return
 	var hint := "Click the monsters to target." if list.size() == battle.alive_groups().size() else "Click the monsters to target. The dimmed ones are out of reach."
-	ui.show_screen({"title": "Choose a target", "where": _where(), "view": "combat", "body": hint + "\n\n" + groups_text(), "opts": [
+	ui.show_screen({"title": "Choose a target", "where": _where(), "view": "combat", "body": hint, "widget": _party_grid(), "party_grid": true, "opts": [
 		{"k": "L", "label": "BACK", "fn": back},
 	]})
 	ui.view.set_targets(list, fn)
@@ -162,10 +268,18 @@ func _pick_item(i: int, c: Character, usable: Array) -> void:
 
 
 func _confirm() -> void:
-	ui.show_screen({"title": "Ready?", "where": _where(), "view": "combat", "body": groups_text() + "\nFight, or take back your orders.", "opts": [
-		{"k": "Enter", "label": "FIGHT!", "fn": func(): ui.clear_log(); _after(battle.play_round(false))},
-		{"k": "T", "label": "TAKE BACK", "fn": func(): battle.cmds = []; next_cmd(0)},
+	_active = -1
+	ui.show_screen({"title": "Ready?", "where": _where(), "view": "combat", "widget": _party_grid(), "party_grid": true, "opts": [
+		{"k": "Enter", "label": "FIGHT!", "fn": func(): ui.clear_log(); _fight_round()},
+		{"k": "T", "label": "BACK", "hide": battle.cmds.is_empty(), "fn": _undo_order},
 	]})
+
+
+func _run() -> void:
+	if battle.try_run():
+		_after("fled")
+	else:
+		_run_round(true)
 
 
 func _after(result: String) -> void:
@@ -228,7 +342,7 @@ func chest_menu() -> void:
 			{"k": "I", "label": "INSPECT", "fn": func(): who.call("Who inspects it?", _inspect)},
 			{"k": "C", "label": "CALFO", "fn": func(): who.call("Who casts CALFO?", _calfo)},
 			{"k": "D", "label": "DISARM", "fn": func(): who.call("Who disarms it?", _disarm)},
-			{"k": "L", "label": "LEAVE", "fn": func(): Game.say("YOU LEAVE THE CHEST ALONE."); chest = {}; ui.mz.maze()},
+			{"k": "L", "label": "EXIT", "fn": func(): Game.say("YOU LEAVE THE CHEST ALONE."); chest = {}; ui.mz.maze()},
 		]})
 
 
@@ -270,7 +384,7 @@ func _calfo(c: Character) -> void:
 func _disarm(c: Character) -> void:
 	ui.show_screen({"title": "Disarm", "view": "chest",
 		"body": "%s studies the lock. Type the name of the trap. Spelling counts.\n[color=#9c947f]%s[/color]" % [ui.esc(c.name), " · ".join(Data.TRAPS)],
-		"input": {"ph": "TRAP NAME", "max": 20, "fn": func(v): _try_disarm(c, v)}, "opts": [{"k": "Escape", "label": "LEAVE", "fn": chest_menu}]})
+		"input": {"ph": "TRAP NAME", "max": 20, "fn": func(v): _try_disarm(c, v)}, "opts": [{"k": "Escape", "label": "EXIT", "fn": chest_menu}]})
 
 
 func _try_disarm(c: Character, v: String) -> void:

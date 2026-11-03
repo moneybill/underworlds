@@ -5,10 +5,22 @@ extends RefCounted
 
 const TAVERN_IMAGE := "res://assets/images/tavern.webp"
 const BOLTAC_IMAGE := "res://assets/images/boltac.webp"
+const GEAR_PLACES := [TAVERN_IMAGE, BOLTAC_IMAGE]  # the buildings that show the party with its equipment
+const GEAR_SLOTS := [["Weapon", "W"], ["Helm", "H"], ["Armor", "A"], ["Shield", "S"]]  # in Data.ITEMS' slot letters
+const GEAR_FONT := 15
+const GEAR_FONT_MIN := 11
+const MAX_PARTY := 6
+const BUY_OFFER := "I will haggle no further, this is my best price!"
+const SELL_OFFER := "This is my offer, take it or leave it..."
+const BUY_NOTE_FONT := 18  # four sizes under the body text
+const BOLTAC_TEXT := "The scent of cedar shavings, dank polishing oil, and cold iron hangs heavy in the air. Boltac's is the premier depot for adventurers seeking to upgrade their arsenal and spend their hard earned coin."
 const INN_IMAGE := "res://assets/images/inn.webp"
 const TEMPLE_IMAGE := "res://assets/images/temple.webp"
 
 var ui
+
+
+var _selected: Character = null  # the party member picked in the Tavern or at Boltac's
 
 
 func _init(root) -> void:
@@ -18,6 +30,7 @@ func _init(root) -> void:
 # ---------- Castle ----------
 func castle() -> void:
 	ui.place_image = ""
+	_selected = null
 	Game.mode = "castle"
 	Game.save_game()
 	var has_party := not Game.party.is_empty()
@@ -39,16 +52,25 @@ func castle() -> void:
 func tavern() -> void:
 	ui.place_image = TAVERN_IMAGE
 	var ps := Game.party_chars()
+	if not ps.has(_selected):
+		_selected = null
+	var chosen := _selected != null
 	var opts := [
-		{"k": "A", "label": "ADD", "dis": ps.size() >= 6, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
-		{"k": "R", "label": "REMOVE", "dis": ps.is_empty(), "fn": func(): ui.pick_member("Remove whom?", tavern, _remove)},
-		{"k": "D", "label": "DIVVY GOLD", "dis": ps.is_empty(), "fn": _divvy},
+		{"k": "A", "label": "ADD", "in_widget": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
+		{"k": "R", "label": "REMOVE", "in_widget": true, "hide": not chosen, "fn": _remove.bind(_selected)},
+		{"k": "D", "label": "DIVVY GOLD", "in_widget": true, "gear_at": "center", "dis": ps.is_empty(), "fn": _divvy},
+		{"k": "I", "label": "INSPECT", "in_widget": true, "gear_at": "right", "hide": not chosen, "fn": ui.chars.inspect.bind(_selected, "tavern", tavern)},
+		{"k": "L", "label": "EXIT", "fn": castle},
 	]
-	for i in ps.size():
-		opts.append({"k": str(i + 1), "label": ps[i].name, "fn": ui.chars.inspect.bind(ps[i], "tavern", tavern)})
-	opts.append({"k": "L", "label": "LEAVE", "fn": castle})
+	var hint := "Click a party member to select them." if not ps.is_empty() else "Add adventurers to form a party."
 	ui.show_screen({"title": "Gilgamesh's Tavern", "where": "Gilgamesh's Tavern", "view": "tavern", "opts": opts,
-		"body": ui.flav("Smoke hangs over the scarred tables and a haunch of boar turns over the fire. Small groups of adventurers talk in low voices.") + "\n\nChoose a party member to inspect them."})
+		"gear_pick": select_member, "gear_hint": hint,
+		"body": ui.flav("Smoke hangs over the scarred tables and a haunch of boar turns over the fire. Small groups of adventurers talk in low voices.")})
+
+
+func select_member(c: Character) -> void:
+	_selected = c
+	tavern()
 
 
 func _can_add(c: Character) -> bool:
@@ -77,22 +99,58 @@ func _divvy() -> void:
 
 
 # ---------- Boltac's Trading Post ----------
+## The party with what each member has equipped.
+func gear_grid(on_click := Callable(), click_dead := true) -> GridContainer:
+	return PartyCards.grid(_fill_gear_cell, Game.party_chars().find(_selected), 4 + GEAR_SLOTS.size(), on_click, click_dead)
+
+
+func _fill_gear_cell(v: VBoxContainer, c: Character, _slot: int) -> void:
+	PartyCards.add_head(v, c, true)
+	for gear in GEAR_SLOTS:
+		var it: Variant = c.equipped(gear[1])
+		var text := "%s: %s" % [gear[0], c.item_name(it) if it != null else "NONE"]
+		var line := PartyCards.label(text, UiStyle.C_INK if it != null else UiStyle.C_DIM)
+		line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		line.add_theme_font_size_override("font_size", _gear_font(text))
+		v.add_child(line)
+	var gold := PartyCards.label("Gold: %d" % c.gold, UiStyle.C_TORCH)
+	gold.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	gold.add_theme_font_size_override("font_size", GEAR_FONT)
+	v.add_child(gold)
+
+
+## The largest size at which this line fits a card, so a long item name still reads in full.
+func _gear_font(text: String) -> int:
+	var sz := GEAR_FONT
+	while sz > GEAR_FONT_MIN and ui.mono.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x > ui.gear_line_room():
+		sz -= 1
+	return sz
+
+
 func boltac() -> void:
 	ui.place_image = BOLTAC_IMAGE
-	ui.pick_member("Boltac's: who will be served?", castle, shop)
-
-
-func shop(c: Character) -> void:
+	var ps := Game.party_chars()
+	if not ps.has(_selected):
+		_selected = null
+	var c := _selected
+	var chosen := c != null
 	ui.show_screen({"title": "Boltac's Trading Post", "where": "Boltac's Trading Post", "view": "shop",
-		"body": ui.flav("Boltac the dwarf rubs his hands together. \"Welcome, %s! What can I sell you?\"" % ui.esc(c.name)) + "\n\n%s HAS %d GOLD. ITEMS %d/8" % [ui.esc(c.name), c.gold, c.items.size()],
+		"gear_pick": shop, "gear_hint": "Click a party member to select them.",
+		"body": ui.flav(BOLTAC_TEXT),
 		"opts": [
-			{"k": "B", "label": "BUY", "fn": buy.bind(c, 0)},
-			{"k": "S", "label": "SELL", "fn": sell.bind(c)},
-			{"k": "U", "label": "UNCURSE", "fn": fee_service.bind(c, "U")},
-			{"k": "I", "label": "IDENTIFY", "fn": fee_service.bind(c, "I")},
-			{"k": "P", "label": "POOL GOLD", "fn": func(): Game.pool_gold(c); shop(c)},
-			{"k": "L", "label": "LEAVE", "fn": castle},
+			{"k": "B", "label": "BUY", "in_widget": true, "hide": not chosen, "fn": buy.bind(c, 0)},
+			{"k": "S", "label": "SELL", "in_widget": true, "hide": not chosen, "fn": sell.bind(c)},
+			{"k": "U", "label": "UNCURSE", "in_widget": true, "hide": not chosen or _fee_items(c, "U").is_empty(), "fn": fee_service.bind(c, "U")},
+			{"k": "I", "label": "IDENTIFY", "in_widget": true, "hide": not chosen or _fee_items(c, "I").is_empty(), "fn": fee_service.bind(c, "I")},
+			{"k": "P", "label": "POOL GOLD", "in_widget": true, "hide": not chosen, "fn": func(): Game.pool_gold(c); boltac()},
+			{"k": "L", "label": "EXIT", "fn": castle},
 		]})
+
+
+## Selects a party member at Boltac's; the shop's other screens return here too.
+func shop(c: Character) -> void:
+	_selected = c
+	boltac()
 
 
 func buy(c: Character, page: int) -> void:
@@ -108,19 +166,29 @@ func buy(c: Character, page: int) -> void:
 		var left: int = Game.stock[id]
 		items.append({"label": ("" if ok else "#") + d["name"], "right": "%d GP%s" % [d["price"], " (%d)" % left if left > 0 else ""],
 			"dis": c.gold < d["price"] or c.items.size() >= 8, "fn": _buy_one.bind(c, id, page, ok)})
-	var extra := []
-	if (page + 1) * per < ids.size():
-		extra.append({"k": "F", "label": "FORWARD", "fn": buy.bind(c, page + 1)})
+	var pager := []
 	if page > 0:
-		extra.append({"k": "B", "label": "BACKWARD", "fn": buy.bind(c, page - 1)})
-	ui.choose_list("Buy", "%s HAS %d GOLD.  # MEANS THIS CHARACTER CANNOT USE IT." % [ui.esc(c.name), c.gold], items, shop.bind(c), extra)
+		pager.append({"k": "B", "label": "PREVIOUS", "fn": buy.bind(c, page - 1)})
+	if (page + 1) * per < ids.size():
+		pager.append({"k": "F", "label": "NEXT", "fn": buy.bind(c, page + 1)})
+	ui.choose_list("Buy", "[font_size=%d]# Not usable by this character.[/font_size]" % BUY_NOTE_FONT, items, shop.bind(c), [], pager, _buy_for.bind(page))
+
+
+## Clicking another living member's card keeps the list open for them.
+func _buy_for(c: Character, page: int) -> void:
+	_selected = c
+	buy(c, page)
+
+
+func _sell_for(c: Character) -> void:
+	_selected = c
+	sell(c)
 
 
 func _buy_one(c: Character, id: String, page: int, ok: bool) -> void:
-	if not ok:
-		ui.yesno("Are you sure?", "\"%s can't use that, you know. Still want it?\"" % ui.esc(c.name), _complete_buy.bind(c, id, page), buy.bind(c, page))
-	else:
-		_complete_buy(c, id, page)
+	var d: Dictionary = Data.ITEMS[id]
+	var note := "" if ok else "%s can't use that, you know." % c.name
+	ui.confirm_window(BUY_OFFER, "Buy %s for %d GP" % [d["name"], d["price"]], note, "Buy", "Not Now", _complete_buy.bind(c, id, page))
 
 
 func _complete_buy(c: Character, id: String, page: int) -> void:
@@ -139,20 +207,22 @@ func sell(c: Character) -> void:
 	for it in c.items:
 		var d: Dictionary = c.item_def(it)
 		var sellable: bool = it["known"] and not it["cursed"] and not d.get("quest", false)
-		items.append({"label": c.item_name(it), "right": ("%d GP" % (d["price"] / 2) if sellable else "NO SALE") + (" *" if it["eq"] else ""),
+		items.append({"label": c.item_name(it), "right": ("%d GP" % _sell_price(c, it) if sellable else "NO SALE") + (" *" if it["eq"] else ""),
 			"dis": not sellable, "fn": _sell_one.bind(c, it)})
-	ui.choose_list("Sell", ui.flav("Boltac pays half of what he charges. He will not buy cursed or unidentified goods."), items, shop.bind(c))
+	ui.choose_list("Sell", ui.flav("Boltac pays half of what he charges. He will not buy cursed or unidentified goods."), items, shop.bind(c), [], null, _sell_for)
 
 
 func _sell_one(c: Character, it: Dictionary) -> void:
-	if it["eq"]:
-		ui.yesno("Sell it?", "That item is equipped. Sell it anyway?", _complete_sell.bind(c, it), sell.bind(c))
-	else:
-		_complete_sell(c, it)
+	var note := "%s has that equipped." % c.name if it["eq"] else ""
+	ui.confirm_window(SELL_OFFER, "Sell %s for %d GP" % [c.item_name(it), _sell_price(c, it)], note, "Sell", "Maybe Later", _complete_sell.bind(c, it))
+
+
+func _sell_price(c: Character, it: Dictionary) -> int:
+	return 0 if it.get("broken", false) else int(c.item_def(it)["price"]) / 2
 
 
 func _complete_sell(c: Character, it: Dictionary) -> void:
-	var price: int = 0 if it.get("broken", false) else int(c.item_def(it)["price"]) / 2
+	var price := _sell_price(c, it)
 	c.gold += price
 	c.items.erase(it)
 	if not it.get("broken", false) and Game.stock.get(it["id"], 0) != -1:
@@ -162,8 +232,13 @@ func _complete_sell(c: Character, it: Dictionary) -> void:
 	sell(c)
 
 
+## The items Boltac could uncurse (kind U) or identify (kind I).
+func _fee_items(c: Character, kind: String) -> Array:
+	return c.items.filter(func(it): return it["cursed"] if kind == "U" else not it["known"])
+
+
 func fee_service(c: Character, kind: String) -> void:
-	var list: Array = c.items.filter(func(it): return it["cursed"] if kind == "U" else not it["known"])
+	var list := _fee_items(c, kind)
 	if list.is_empty():
 		Game.say("NOTHING CURSED HERE. BOLTAC LOOKS DISAPPOINTED." if kind == "U" else "EVERYTHING IS ALREADY IDENTIFIED.")
 		shop(c)
@@ -293,7 +368,7 @@ func edge_of_town() -> void:
 			{"k": "T", "label": "TRAINING GROUNDS", "fn": ui.chars.training},
 			{"k": "U", "label": "UTILITIES", "fn": utilities},
 			{"k": "C", "label": "CASTLE", "fn": castle},
-			{"k": "Q", "label": "LEAVE GAME", "fn": func(): Game.save_game(); ui.get_tree().quit()},
+			{"k": "Q", "label": "EXIT GAME", "fn": func(): Game.save_game(); ui.get_tree().quit()},
 		]})
 
 
@@ -301,13 +376,13 @@ func utilities() -> void:
 	ui.show_screen({"title": "Utilities", "where": "Utilities", "view": "edge", "opts": [
 		{"k": "C", "label": "CHANGE NAME", "fn": func(): ui.chars.roster_pick("Rename whom?", func(_c): return true, _rename, utilities)},
 		{"k": "R", "label": "RESTART AN \"OUT\" PARTY", "dis": Game.outs.is_empty() or not Game.party.is_empty(), "fn": restart_out},
-		{"k": "L", "label": "LEAVE", "fn": edge_of_town},
+		{"k": "L", "label": "EXIT", "fn": edge_of_town},
 	]})
 
 
 func _rename(c: Character) -> void:
 	ui.show_screen({"title": "Rename %s" % c.name, "view": "edge", "body": "Type the new name, then choose OK.",
-		"input": {"ph": "NEW NAME", "fn": func(v): _do_rename(c, v)}, "opts": [{"k": "Escape", "label": "LEAVE", "fn": utilities}]})
+		"input": {"ph": "NEW NAME", "fn": func(v): _do_rename(c, v)}, "opts": [{"k": "Escape", "label": "EXIT", "fn": utilities}]})
 
 
 func _do_rename(c: Character, v: String) -> void:

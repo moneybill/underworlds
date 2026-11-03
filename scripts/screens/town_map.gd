@@ -176,6 +176,8 @@ func _refresh_party() -> void:
 		face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_party.add_child(face)
+		if not c.is_alive():
+			UiStyle.add_tombstone(face)
 		var row := Color(ui.party_row_color(i))
 		_party_label(c.name + (" &" if c.honor else ""), row, HORIZONTAL_ALIGNMENT_LEFT)
 		_party_label("%s-%s" % [c.align.substr(0, 1), c.cdata()["ab"]], row)

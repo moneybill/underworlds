@@ -91,6 +91,17 @@ const WEB_SIDE_CHANCE := 14  # percent of squares beside a plain wall
 const WEB_SIDE_WIDTH := 1.1
 const WEB_SHIFT := 0.5  # how far from the middle of the square they can hang, along the passage
 
+# Chests sit against plain walls here and there: real 3D objects, built from simple shapes, and only scenery for now.
+const CHEST_CHANCE := 3  # percent of squares
+const CHEST_WIDTH := 0.7
+const CHEST_DEPTH := 0.42
+const CHEST_BODY := 0.26  # height of the box under the lid
+const CHEST_GAP := 0.03  # from the wall
+const CHEST_WOOD := Color("7a4a3a")
+const CHEST_BANDS := Color("6fa3a0")
+const CHEST_LOCK := Color("c9a24a")
+const CHEST_INK := 0.007  # thickness of the dark outline, to match the painted art
+
 # Braziers stand around each level, mostly in corners. Only those near the party burn, to keep the frame rate up.
 const BRAZIER_FIRE_SCENE := "res://Vefects/Free Fire VFX/Particles/VFX_Fire_01_Small_Simple.tscn"  # may be missing, like the campfire
 const BRAZIER_CORNER_CHANCE := 14  # percent of squares with a corner
@@ -114,6 +125,9 @@ const BRAZIER_FLICKER := 0.1
 var _ladder_floor: MeshInstance3D
 var _ladder_light: OmniLight3D
 var _ladder_up_light: OmniLight3D
+var _chest_holder: Node3D
+var _chests: Array = []
+var _chest_mesh_shared: ArrayMesh
 var _campfire: Node3D
 var _brazier_holder: Node3D
 var _braziers: Array = []
@@ -143,6 +157,9 @@ func _ready() -> void:
 	add_child(_level)
 	_brazier_holder = Node3D.new()
 	add_child(_brazier_holder)
+	_chest_holder = Node3D.new()
+	add_child(_chest_holder)
+	_chest_mesh_shared = _chest_mesh()
 	_ladder_floor = MeshInstance3D.new()
 	_ladder_floor.mesh = _ladder_mesh()
 	add_child(_ladder_floor)
@@ -214,6 +231,7 @@ func sync_to_party() -> void:
 	if p["z"] != _brazier_level:
 		_brazier_level = p["z"]
 		_build_braziers(Game.level())
+		_build_chests(Game.level())
 		_place_ladder(Game.level())
 	_update_braziers(Vector2i(p["x"], p["y"]))
 	_ladder_floor.rotation.y = camera_yaw(p["d"])  # turns are instant, so this never shows
@@ -312,6 +330,109 @@ static func brazier_spots(lv: MazeLevel) -> Array:
 			if not crowded:
 				spots.append({"c": c, "pos": cell_centre(c) + offset, "corner": corner})
 	return spots
+
+
+## Where a level's chests sit: always the same places, each against a plain wall, clear of braziers and ladders.
+static func chest_spots(lv: MazeLevel) -> Array:
+	var taken := {}
+	for spot in brazier_spots(lv):
+		taken[spot["c"]] = true
+	var spots := []
+	var back: float = CELL / 2.0 - THICKNESS / 2.0 - CHEST_DEPTH / 2.0 - CHEST_GAP
+	for y in MazeLevel.N:
+		for x in MazeLevel.N:
+			var c := Vector2i(x, y)
+			if taken.has(c) or lv.flag(x, y, "dark") or lv.flag(x, y, "up") or lv.flag(x, y, "down"):
+				continue
+			if posmod(hash([lv.z, x, y, "chest"]), 100) >= CHEST_CHANCE:
+				continue
+			var first := posmod(hash([lv.z, x, y, "chest side"]), 4)
+			for i in 4:
+				var d := (first + i) % 4
+				if lv.wall(x, y, d) == 1:
+					spots.append({"c": c, "side": d, "pos": cell_centre(c) + DIRS[d] * back})
+					break
+	return spots
+
+
+## The front of the chest faces away from its wall.
+static func chest_yaw(side: int) -> float:
+	var front := -DIRS[side]
+	return atan2(front.x, front.z)
+
+
+func _build_chests(lv: MazeLevel) -> void:
+	for child in _chest_holder.get_children():
+		child.free()
+	_chests = []
+	for spot in chest_spots(lv):
+		var chest := MeshInstance3D.new()
+		chest.mesh = _chest_mesh_shared
+		chest.position = spot["pos"]
+		chest.rotation.y = chest_yaw(spot["side"])
+		_chest_holder.add_child(chest)
+		_chests.append(chest)
+
+
+func _chest_mesh() -> ArrayMesh:
+	var w := CHEST_WIDTH
+	var d := CHEST_DEPTH
+	var h := CHEST_BODY
+	var lid_turn := Basis(Vector3(0, 0, 1), PI / 2.0)
+	var band_x := w * 0.34
+	var mesh := ArrayMesh.new()
+	_chest_part(mesh, CHEST_WOOD, [
+		[_box(Vector3(w, h, d)), Transform3D(Basis(), Vector3(0, h / 2.0, 0))],
+		[_drum(d / 2.0, w), Transform3D(lid_turn, Vector3(0, h, 0))],
+	])
+	_chest_part(mesh, CHEST_BANDS, [
+		[_box(Vector3(0.07, h + 0.005, d + 0.024)), Transform3D(Basis(), Vector3(-band_x, h / 2.0, 0))],
+		[_box(Vector3(0.07, h + 0.005, d + 0.024)), Transform3D(Basis(), Vector3(band_x, h / 2.0, 0))],
+		[_drum(d / 2.0 + 0.012, 0.07), Transform3D(lid_turn, Vector3(-band_x, h, 0))],
+		[_drum(d / 2.0 + 0.012, 0.07), Transform3D(lid_turn, Vector3(band_x, h, 0))],
+		[_box(Vector3(w + 0.02, 0.035, d + 0.02)), Transform3D(Basis(), Vector3(0, h, 0))],
+	])
+	_chest_part(mesh, CHEST_LOCK, [
+		[_box(Vector3(0.1, 0.12, 0.03)), Transform3D(Basis(), Vector3(0, h - 0.01, d / 2.0 + 0.012))],
+	])
+	return mesh
+
+
+func _box(size: Vector3) -> BoxMesh:
+	var box := BoxMesh.new()
+	box.size = size
+	return box
+
+
+func _drum(radius: float, length: float) -> CylinderMesh:
+	var drum := CylinderMesh.new()
+	drum.top_radius = radius
+	drum.bottom_radius = radius
+	drum.height = length
+	drum.radial_segments = 20
+	drum.rings = 1
+	return drum
+
+
+## One colour's worth of a chest, with a dark outline drawn behind it.
+func _chest_part(mesh: ArrayMesh, color: Color, pieces: Array) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for piece in pieces:
+		st.append_from(piece[0], 0, piece[1])
+	st.commit(mesh)
+	var ink := StandardMaterial3D.new()
+	ink.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ink.albedo_color = Color.BLACK
+	ink.cull_mode = BaseMaterial3D.CULL_FRONT
+	ink.grow = true
+	ink.grow_amount = CHEST_INK
+	var paint := StandardMaterial3D.new()
+	paint.albedo_color = color
+	paint.metallic_specular = 0.15
+	paint.roughness = 0.9
+	paint.next_pass = ink
+	mesh.surface_set_material(mesh.get_surface_count() - 1, paint)
 
 
 func _build_braziers(lv: MazeLevel) -> void:

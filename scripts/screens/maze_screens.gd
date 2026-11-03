@@ -34,7 +34,7 @@ func camp() -> void:
 		opts.append({"k": str(i + 1), "label": ps[i].name, "fn": ui.chars.inspect.bind(ps[i], "camp", camp)})
 	opts.append({"k": "R", "label": "REORDER", "fn": reorder.bind([])})
 	opts.append({"k": "E", "label": "EQUIP", "fn": _equip_all.bind(0)})
-	opts.append({"k": "L", "label": "LEAVE CAMP", "fn": maze})
+	opts.append({"k": "L", "label": "EXIT CAMP", "fn": maze})
 	ui.show_screen({"title": "Camp", "where": "Maze · Level %d" % Game.pos["z"], "view": "camp", "opts": opts,
 		"body": ui.flav("Guards are posted and the fire is lit. No monster will trouble you while you stay in camp.")})
 

@@ -5,8 +5,25 @@ extends Control
 const KIND_COLORS := {"hit": "d6563f", "mag": "8bace6", "gold": "e3a33f", "ok": "93c07e", "": "9c947f"}
 const PORTRAIT_SIZE := 300.0
 const BACKDROP_COLUMN := 540.0  # width of the text column over a painted backdrop, clear of its center
+const GEAR_COLUMN := 600.0  # width of the party's equipment over a painting
+const GEAR_PANEL_MARGIN := 8.0  # inside its panel
+const CONFIRM_WIDTH := 560.0
+const CONFIRM_LAYER := 100  # above the test switches
+const CONFIRM_DIM := Color(0, 0, 0, 0.6)
+const GEAR_HINT_FONT := 18  # four sizes under the body text
+const PAGER_FONT := 18
+const PAGER_FILL := Color("5a3d24")  # brown, to stand apart from the list above
+const PAGER_EDGE := Color("8a6238")
+const PAGER_EXIT_FILL := Color("6e2a26")  # oxblood
+const PAGER_EXIT_EDGE := Color("a04a42")
+const GEAR_BUTTONS_HEIGHT := 40.0  # the row under the cards keeps its height with no buttons in it
+const GEAR_LEFT := 570.0  # just right of the text column
+const GEAR_TOP := 46.0  # just under the test switches
+const CARD_MARGIN := 16.0  # a card's edges and padding, left and right together
 const BACKDROP_TABLE_FONT := 15  # lets the longest party row fit that column on one line
 const LOG_HEIGHT := 120.0
+const SOUND_VOICES := 4  # sounds that can overlap
+const FIGHT_LOG_HEIGHT := 50.0  # room for a front row bishop's options, and a magic item
 const BACKDROP_LOG_HEIGHT := 50.0  # the column is short of room, and a full Inspect screen needs it
 
 const TURN_AROUND_ICON: Texture2D = preload("res://assets/images/rotate.png")
@@ -24,13 +41,23 @@ var _body: RichTextLabel
 var _widget_box: VBoxContainer
 var _portrait: PanelContainer
 var _side: PanelContainer
+var _gear: PanelContainer
+var _gear_grid: GridContainer
+var _gear_row: HBoxContainer
+var _exit_row: HBoxContainer
+var _pager_row: HBoxContainer
+var _confirm_box: Control = null
+var _confirm_yes: Button
+var _confirm_no: Button
 var _portrait_image: TextureRect
+var _portrait_tomb: TextureRect
 var _entry: LineEdit
 var _opts_flow: HFlowContainer
 var _opts_col: VBoxContainer
 var _log: RichTextLabel
 var _party: RichTextLabel
 var _pad: GridContainer
+var _sounds: AudioStreamPlayer
 var monsters_button: Button
 var god_button: Button
 var town_button: Button
@@ -61,6 +88,9 @@ func _ready() -> void:
 	chars = CharScreens.new(self)
 	mz = MazeScreens.new(self)
 	fight = CombatScreens.new(self)
+	_sounds = AudioStreamPlayer.new()
+	_sounds.max_polyphony = SOUND_VOICES
+	add_child(_sounds)
 	Game.logged.connect(log_line)
 	Game.load_game()
 	if not Game.roster.is_empty():
@@ -82,6 +112,16 @@ func _show_turn_around(b: Button) -> void:
 		b.add_theme_color_override(state, UiStyle.C_INK)
 	for state in ["icon_pressed_color", "icon_hover_pressed_color"]:
 		b.add_theme_color_override(state, UiStyle.C_BG)
+
+
+func widget_box() -> VBoxContainer:
+	return _widget_box
+
+
+## Plays a sound effect. Sounds can overlap.
+func play_sound(stream: AudioStream) -> void:
+	_sounds.stream = stream
+	_sounds.play()
 
 
 ## Top middle of every screen, above the paintings.
@@ -179,10 +219,17 @@ func _build_layout() -> void:
 	_portrait_image.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_portrait_image.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_portrait.add_child(_portrait_image)
+	_portrait_tomb = UiStyle.add_tombstone(_portrait_image)
 	_side = PanelContainer.new()
 	_side.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.94), UiStyle.C_LINE, 14))
 	_side.visible = false
 	add_child(_side)
+	_gear = PanelContainer.new()
+	_gear.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.88), UiStyle.C_LINE, int(GEAR_PANEL_MARGIN)))
+	_gear.position = Vector2(GEAR_LEFT, GEAR_TOP)
+	_gear.custom_minimum_size.x = GEAR_COLUMN
+	_gear.visible = false
+	add_child(_gear)
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 12)
 	margin.add_child(root)
@@ -266,6 +313,9 @@ func _build_layout() -> void:
 	pv.add_child(_opts_flow)
 	_opts_col = VBoxContainer.new()
 	pv.add_child(_opts_col)
+	_exit_row = HBoxContainer.new()  # under the text at the right, on screens with the party's cards
+	_exit_row.alignment = BoxContainer.ALIGNMENT_END
+	pv.add_child(_exit_row)
 	var sep := HSeparator.new()
 	pv.add_child(sep)
 	_log = RichTextLabel.new()
@@ -291,11 +341,14 @@ func _build_layout() -> void:
 
 # ---------- the menu system ----------
 ## s: {title, where, body (bbcode), opts: [{k (the option's id), label, fn, dis, hide, right}], col,
+##     party_grid: the widget shows the party, so the party table hides,
 ##     input: {ph, max, fn}, moves: {pad button: Callable}, view, pad, widget: Control, map, portrait: path, side: Control}
 func show_screen(s: Dictionary) -> void:
+	_close_confirm()
 	scr = s
 	_set_backdrop(place_image)
 	_set_portrait(s.get("portrait", ""))
+	_portrait_tomb.visible = s.get("portrait_dead", false)
 	_set_side(s.get("side"))
 	_title.text = s.get("title", "")
 	if s.has("where"):
@@ -305,6 +358,8 @@ func show_screen(s: Dictionary) -> void:
 		n.queue_free()
 	if s.has("widget"):
 		_widget_box.add_child(s["widget"])
+	# A screen with its own portrait, like Inspect, keeps that spot for it.
+	var gear: bool = TownScreens.GEAR_PLACES.has(place_image) and s.get("portrait", "") == ""
 	for n in _opts_flow.get_children() + _opts_col.get_children():
 		n.queue_free()
 	var col: bool = s.get("col", false)
@@ -314,8 +369,10 @@ func show_screen(s: Dictionary) -> void:
 	if s.has("input"):
 		opts = [{"k": "OK", "label": "OK", "fn": _submit_input}] + opts
 	for o in opts:
-		if o.get("hide", false):
-			continue
+		if o.has("pager"):
+			continue  # these share the row under the list
+		if o.get("hide", false) or o.get("in_widget", false) or (gear and _is_exit(o)):
+			continue  # an in_widget option has its button in the screen's widget instead, and EXIT has its own place
 		var b := Button.new()
 		b.text = _opt_text(o)
 		b.focus_mode = Control.FOCUS_NONE
@@ -323,6 +380,10 @@ func show_screen(s: Dictionary) -> void:
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.pressed.connect(_run.bind(o))
 		(_opts_col if col else _opts_flow).add_child(b)
+	_pager_row = null
+	if opts.any(func(o): return o.has("pager")):
+		_pager_row = _pager_buttons(opts)
+		_opts_col.add_child(_pager_row)
 	_entry.visible = s.has("input")
 	if s.has("input"):
 		_entry.text = s["input"].get("val", "")
@@ -332,12 +393,105 @@ func show_screen(s: Dictionary) -> void:
 	else:
 		_entry.release_focus()
 	_pad.visible = s.get("pad", false)
+	_table.visible = not s.has("party_grid") and not gear
+	for n in _gear.get_children():
+		n.queue_free()
+	_gear.visible = gear
+	if gear:
+		var gear_box := VBoxContainer.new()
+		_gear.add_child(gear_box)
+		if s.has("gear_hint"):
+			var hint := Label.new()
+			hint.text = s["gear_hint"]
+			hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			hint.add_theme_font_size_override("font_size", GEAR_HINT_FONT)
+			gear_box.add_child(hint)
+		_gear_grid = town.gear_grid(s.get("gear_pick", Callable()), not s.get("gear_skip_dead", false))
+		gear_box.add_child(_gear_grid)
+		_gear_row = _gear_buttons(opts)
+		gear_box.add_child(_gear_row)
+	for n in _exit_row.get_children():
+		n.queue_free()
+	_exit_row.visible = gear
+	if gear:
+		for o in opts:
+			if _is_exit(o) and not o.get("hide", false) and not o.has("pager"):
+				_exit_row.add_child(_small_button(o, PAGER_EXIT_FILL, PAGER_EXIT_EDGE))
+	if s.has("party_grid"):
+		_log.custom_minimum_size.y = FIGHT_LOG_HEIGHT
 	_show_test_switches()
 	view.show_view(s.get("view", view.kind))
 	render_party()
 	town_map.visible = s.get("map", false)
 	if town_map.visible:
 		town_map.show_options(s)
+
+
+## The row under the cards: in_widget options at the left, or at their gear_at of center or right.
+func _gear_buttons(opts: Array) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size.y = GEAR_BUTTONS_HEIGHT
+	var left := HBoxContainer.new()
+	var center := HBoxContainer.new()
+	var right := HBoxContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	right.alignment = BoxContainer.ALIGNMENT_END
+	for part: HBoxContainer in [left, center, right]:
+		part.add_theme_constant_override("separation", 6)
+		row.add_child(part)
+	for o in opts:
+		if o.get("hide", false) or not o.get("in_widget", false):
+			continue
+		var at: String = o.get("gear_at", "left")
+		(right if at == "right" else (center if at == "center" else left)).add_child(_gear_button(o))
+	return row
+
+
+func _gear_button(o: Dictionary) -> Button:
+	var b := Button.new()
+	b.text = _opt_text(o)
+	b.focus_mode = Control.FOCUS_NONE
+	b.disabled = o.get("dis", false)
+	b.pressed.connect(_run.bind(o))
+	return b
+
+
+## Page buttons on the left of the row, EXIT on the right.
+func _pager_buttons(opts: Array) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(gap)
+	for o in opts:
+		if not o.has("pager"):
+			continue
+		var is_exit: bool = o["pager"] == "exit"
+		var b := _small_button(o, PAGER_EXIT_FILL if is_exit else PAGER_FILL, PAGER_EXIT_EDGE if is_exit else PAGER_EDGE)
+		row.add_child(b)
+		if not is_exit:
+			row.move_child(b, gap.get_index())
+	return row
+
+
+func _small_button(o: Dictionary, fill: Color, edge: Color) -> Button:
+	var b := _gear_button(o)
+	b.add_theme_font_size_override("font_size", PAGER_FONT)
+	for st in ["normal", "focus"]:
+		b.add_theme_stylebox_override(st, UiStyle.box(fill, edge, 4))
+	b.add_theme_stylebox_override("hover", UiStyle.box(fill.lightened(0.15), edge, 4))
+	return b
+
+
+func _is_exit(o: Dictionary) -> bool:
+	return String(o["label"]) == "EXIT"
+
+
+## The width of one line of text on a card in the equipment panel.
+func gear_line_room() -> float:
+	var cards := GEAR_COLUMN - 2.0 * GEAR_PANEL_MARGIN - (PartyCards.COLUMNS - 1) * 6.0
+	return cards / PartyCards.COLUMNS - CARD_MARGIN
 
 
 ## With a backdrop, the painting fills the window and the text and party share a column on the left.
@@ -454,15 +608,84 @@ func yesno(title: String, body: String, yes: Callable, no: Callable, portrait :=
 		{"k": "N", "label": "NO", "fn": no}]})
 
 
+## A window over the current screen, which waits for an answer. Saying no just closes it.
+func confirm_window(quote: String, ask: String, note: String, yes_label: String, no_label: String, on_yes: Callable) -> void:
+	_close_confirm()
+	_confirm_box = Control.new()
+	_confirm_box.z_index = CONFIRM_LAYER
+	add_child(_confirm_box)
+	_confirm_box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var dim := ColorRect.new()
+	dim.color = CONFIRM_DIM
+	_confirm_box.add_child(dim)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var center := CenterContainer.new()
+	_confirm_box.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.x = CONFIRM_WIDTH
+	panel.add_theme_stylebox_override("panel", UiStyle.box(UiStyle.C_STONE, UiStyle.C_TORCH, 18))
+	center.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 16)
+	panel.add_child(v)
+	v.add_child(_confirm_label(quote, UiStyle.C_DIM))
+	v.add_child(_confirm_label(ask, UiStyle.C_TORCH))
+	if note != "":
+		v.add_child(_confirm_label(note, UiStyle.C_INK))
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 16)
+	v.add_child(row)
+	_confirm_yes = Button.new()
+	_confirm_yes.text = yes_label
+	_confirm_yes.focus_mode = Control.FOCUS_NONE
+	_confirm_yes.pressed.connect(func(): _close_confirm(); on_yes.call())
+	row.add_child(_confirm_yes)
+	_confirm_no = Button.new()
+	_confirm_no.text = no_label
+	_confirm_no.focus_mode = Control.FOCUS_NONE
+	_confirm_no.pressed.connect(_close_confirm)
+	row.add_child(_confirm_no)
+
+
+func _confirm_label(text: String, col: Color) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_color_override("font_color", col)
+	return l
+
+
+func _close_confirm() -> void:
+	if _confirm_box != null:
+		_confirm_box.queue_free()
+		_confirm_box = null
+
+
 ## items: [{label, fn, dis, right}] become numbered options 1..9.
-func choose_list(title: String, body: String, items: Array, back: Callable, extra: Array = []) -> void:
+## With a pager, or in a building that shows the party's cards, the page buttons and EXIT share a smaller row under the list.
+## With switch_member, clicking a living member's card calls it with that character.
+func choose_list(title: String, body: String, items: Array, back: Callable, extra: Array = [], pager: Variant = null, switch_member := Callable()) -> void:
 	var opts := []
 	for i in items.size():
 		var it: Dictionary = items[i]
 		opts.append({"k": str(i + 1), "label": it["label"], "fn": it["fn"], "dis": it.get("dis", false), "right": it.get("right", "")})
 	opts.append_array(extra)
-	opts.append({"k": "L", "label": "LEAVE", "fn": back})
-	show_screen({"title": title, "body": body, "opts": opts, "col": true})
+	var exit_opt := {"k": "L", "label": "EXIT", "fn": back}
+	if pager != null:
+		for o in pager:
+			o["pager"] = "page"
+		opts.append_array(pager)
+	if pager != null or TownScreens.GEAR_PLACES.has(place_image):
+		exit_opt["pager"] = "exit"
+	opts.append(exit_opt)
+	var s := {"title": title, "body": body, "opts": opts, "col": true}
+	if switch_member.is_valid():
+		s["gear_pick"] = switch_member
+		s["gear_skip_dead"] = true
+	show_screen(s)
 
 
 func pick_member(title: String, back: Callable, fn: Callable, filter := Callable()) -> void:
