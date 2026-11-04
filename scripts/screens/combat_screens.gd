@@ -3,25 +3,30 @@ extends RefCounted
 ## Combat orders (Fight, Parry, Dispell, Spell, Use, Run, Take back), friendly encounters,
 ## and treasure chests with their traps.
 
-## Melee attack sounds, by monster id in Data.MONS. Each attack picks one at random.
-const ATTACK_SOUNDS := {
-	"SLIME": [
-		preload("res://assets/audio/monsters/slime_attack_1.wav"),
-		preload("res://assets/audio/monsters/slime_attack_2.wav"),
-		preload("res://assets/audio/monsters/slime_attack_3.wav"),
-		preload("res://assets/audio/monsters/slime_attack_4.wav"),
-	],
-}
+const IDLE_GAP_MIN := 6.0  # seconds between idle sounds, at least
+const IDLE_GAP_MAX := 12.0  # and at most
 
 var ui
 var instant := false  # tests play rounds in one go
 var sounds_played := 0
+var idles_played := 0
 var battle: Battle = null
 var chest: Dictionary = {}
 
 
+var _in_round := false  # a round is playing, rather than the party giving its orders
+var _idle_timer: Timer
+var _sound_dice := RandomNumberGenerator.new()  # its own, so that sounds can't change what the game's dice roll
+
+
 func _init(root) -> void:
 	ui = root
+	_sound_dice.randomize()
+	_idle_timer = Timer.new()
+	_idle_timer.wait_time = IDLE_GAP_MAX
+	_idle_timer.autostart = true
+	_idle_timer.timeout.connect(idle_tick)
+	ui.add_child(_idle_timer)
 
 
 func _where() -> String:
@@ -85,11 +90,13 @@ func _leave_in_peace() -> void:
 
 func _done() -> void:
 	battle = null
+	_in_round = false
 	ui.view.battle = null
 
 
 # ---------- orders ----------
 func start_round() -> void:
+	_in_round = false
 	battle.round_no += 1
 	battle.cmds = []
 	next_cmd(0)
@@ -146,26 +153,48 @@ func _party_grid(opts: Array = []) -> GridContainer:
 
 
 func _fill_cell(v: VBoxContainer, c: Character, i: int, opts: Array) -> void:
-	PartyCards.add_head(v, c)
+	PartyCards.add_head(v, c, true)
 	var state := "" if c.status == "OK" else c.status
 	for order in battle.cmds:
 		if order["c"] == c:
 			state = String(order["type"]).to_upper()
-	v.add_child(PartyCards.label(state, UiStyle.C_TORCH))
-	if i != _active:
+	if state != "" and c.is_alive():  # the dead have their tombstone
+		_add_state_badge(v.get_child(0), state)
+	var own := opts.filter(func(o): return o.get("in_widget", false) and not o.get("hide", false))
+	if i != _active or own.is_empty():
 		return
-	for o in opts:
-		if o.get("in_widget", false) and not o.get("hide", false):
-			var b := Button.new()
-			b.text = o["label"]
-			b.disabled = o.get("dis", false)
-			b.focus_mode = Control.FOCUS_NONE
-			b.add_theme_font_size_override("font_size", 16)
-			for st in ["normal", "hover", "disabled"]:
-				b.add_theme_stylebox_override(st, UiStyle.box(UiStyle.C_STONE if st == "disabled" else UiStyle.C_STONE2, UiStyle.C_LINE if st != "hover" else UiStyle.C_DIM, 3))
-			b.add_theme_stylebox_override("pressed", UiStyle.box(UiStyle.C_TORCH, UiStyle.C_TORCH, 3))
-			b.pressed.connect(ui._run.bind(o))
-			v.add_child(b)
+	var buttons := GridContainer.new()
+	buttons.columns = 2
+	buttons.add_theme_constant_override("h_separation", 3)
+	buttons.add_theme_constant_override("v_separation", 3)
+	v.add_child(buttons)
+	for o in own:
+		var b := Button.new()
+		b.text = o["label"]
+		b.disabled = o.get("dis", false)
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 16)
+		for st in ["normal", "hover", "disabled"]:
+			b.add_theme_stylebox_override(st, UiStyle.box(UiStyle.C_STONE if st == "disabled" else UiStyle.C_STONE2, UiStyle.C_LINE if st != "hover" else UiStyle.C_DIM, 3))
+		b.add_theme_stylebox_override("pressed", UiStyle.box(UiStyle.C_TORCH, UiStyle.C_TORCH, 3))
+		b.pressed.connect(ui._run.bind(o))
+		buttons.add_child(b)
+
+
+## A character's order or condition, across the foot of their portrait.
+func _add_state_badge(portrait: Control, state: String) -> void:
+	var badge := PartyCards.label(state, UiStyle.C_TORCH)
+	var back := UiStyle.box(Color(UiStyle.C_BG, 0.85), UiStyle.C_TORCH, 0)
+	back.content_margin_left = 5.0
+	back.content_margin_right = 5.0
+	badge.add_theme_stylebox_override("normal", back)
+	badge.clip_text = false
+	badge.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE)
+	badge.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	badge.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portrait.add_child(badge)
 
 
 ## Plays the round the party has ordered.
@@ -179,6 +208,7 @@ func _run_round(mon_only: bool) -> void:
 		_after(battle.play_round(mon_only))
 		return
 	_active = -1
+	_in_round = true
 	var shown := battle.alive_groups()
 	battle.begin_round(mon_only)
 	var title := "The monsters attack!" if mon_only else "Round %d" % battle.round_no
@@ -190,21 +220,36 @@ func _run_round(mon_only: bool) -> void:
 func _step_round() -> void:
 	while battle.has_next_act():
 		var old_results: int = battle.results.size()
-		var old_attacks: int = battle.attacks.size()
+		var old_sounds: int = battle.sounds.size()
 		battle.step()
-		if battle.results.size() == old_results and battle.attacks.size() == old_attacks:
+		var streams := MonsterSounds.for_events(battle.sounds.slice(old_sounds))
+		if battle.results.size() == old_results and streams.is_empty():
 			continue
 		for res in battle.results.slice(old_results):
 			ui.view.add_result(res)
-		for id in battle.attacks.slice(old_attacks):
-			if ATTACK_SOUNDS.has(id):
-				ui.play_sound(ATTACK_SOUNDS[id].pick_random())
-				sounds_played += 1
+		if not streams.is_empty():
+			_play_one(streams)
+			sounds_played += 1
 		_show_party()
 		return
 	var outcome := battle.finish_round()
 	_show_party()
 	ui.view.end_steps(_after.bind(outcome))
+
+
+func _play_one(streams: Array) -> void:
+	ui.play_sound(streams[_sound_dice.randi_range(0, streams.size() - 1)])
+
+
+## Now and then, a monster makes a noise while the party decides what to do.
+func idle_tick() -> void:
+	_idle_timer.wait_time = _sound_dice.randf_range(IDLE_GAP_MIN, IDLE_GAP_MAX)
+	if battle == null or _in_round or instant or Game.mode != "combat":
+		return
+	var streams := MonsterSounds.idle_for(battle.alive_groups().map(func(g): return battle.groups[g]["id"]))
+	if not streams.is_empty():
+		_play_one(streams)
+		idles_played += 1
 
 
 ## Redraws the party's portraits, as hits land during a round.
@@ -233,8 +278,7 @@ func _choose_group(list: Array, fn: Callable, back: Callable) -> void:
 	if list.size() == 1:
 		fn.call(list[0])
 		return
-	var hint := "Click the monsters to target." if list.size() == battle.alive_groups().size() else "Click the monsters to target. The dimmed ones are out of reach."
-	ui.show_screen({"title": "Choose a target", "where": _where(), "view": "combat", "body": hint, "widget": _party_grid(), "party_grid": true, "opts": [
+	ui.show_screen({"view_note": "Choose a target", "where": _where(), "view": "combat", "widget": _party_grid(), "party_grid": true, "opts": [
 		{"k": "L", "label": "BACK", "fn": back},
 	]})
 	ui.view.set_targets(list, fn)

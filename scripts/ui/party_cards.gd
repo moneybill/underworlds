@@ -14,7 +14,8 @@ const DEAD_EDGE := Color("8a2f2c")
 
 ## Calls fill(box, character, slot) for each member. Empty slots stay the height of a card with this many lines.
 ## With on_click, clicking a member's card calls on_click(character). With click_dead off, the dead's cards ignore clicks.
-static func grid(fill: Callable, active := -1, lines := 3, on_click := Callable(), click_dead := true) -> GridContainer:
+## Below 1, fill_alpha lets what's behind the cards show through.
+static func grid(fill: Callable, active := -1, lines := 3, on_click := Callable(), click_dead := true, fill_alpha := 1.0) -> GridContainer:
 	var g := GridContainer.new()
 	g.columns = COLUMNS
 	g.add_theme_constant_override("h_separation", 6)
@@ -29,7 +30,7 @@ static func grid(fill: Callable, active := -1, lines := 3, on_click := Callable(
 		var dead := i < ps.size() and not ps[i].is_alive()
 		var box_fill: Color = DEAD_FILL if dead else (UiStyle.C_STONE2 if is_active else UiStyle.C_STONE)
 		var edge: Color = UiStyle.C_TORCH if is_active else (DEAD_EDGE if dead else UiStyle.C_LINE)
-		cell.add_theme_stylebox_override("panel", UiStyle.box(box_fill, edge, 5))
+		cell.add_theme_stylebox_override("panel", UiStyle.box(Color(box_fill, fill_alpha), edge, 5))
 		var v := VBoxContainer.new()
 		v.add_theme_constant_override("separation", LINE_GAP)
 		cell.add_child(v)

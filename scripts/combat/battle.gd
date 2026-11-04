@@ -21,12 +21,12 @@ static func mk_group(id: String, n: int) -> Dictionary:
 	var M: Dictionary = Data.MONS[id]
 	var ms := []
 	for i in n:
-		ms.append({"hp": Dice.rnd(M["hp"][0], M["hp"][1]), "asleep": false, "para": false, "sil": false, "dead": false, "disp": false})
+		ms.append({"id": id, "hp": Dice.rnd(M["hp"][0], M["hp"][1]), "asleep": false, "para": false, "sil": false, "dead": false, "disp": false})
 	return {"id": id, "ac_mod": 0, "known": false, "ms": ms}
 
 
 ## Rolls up an encounter for the current Maze level.
-var attacks: Array = []  # the id of each monster that made a melee attack this round, for its sound
+var sounds: Array = []  # what monsters did this round that can make a sound: {id, event}
 var _acts: Array = []  # what is left to happen this round, in order
 var results: Array = []  # what the party's attacks did this round, to show on the monsters: {g, who, text, hit}
 
@@ -141,7 +141,7 @@ func play_round(mon_only: bool) -> String:
 ## Rolls who acts when. Then step() plays one act at a time, and finish_round() ends the round.
 func begin_round(mon_only: bool) -> void:
 	results = []
-	attacks = []
+	sounds = []
 	_acts = []
 	if not mon_only:
 		for a in cmds:
@@ -219,6 +219,7 @@ func _kill(m: Dictionary, dispelled := false) -> void:
 	m["dead"] = true
 	m["hp"] = 0
 	m["disp"] = dispelled
+	sounds.append({"id": m["id"], "event": MonsterSounds.DEATH})
 
 
 func _hurt(m: Dictionary, d: int) -> bool:
@@ -226,6 +227,7 @@ func _hurt(m: Dictionary, d: int) -> bool:
 	if m["hp"] <= 0:
 		_kill(m)
 		return true
+	sounds.append({"id": m["id"], "event": MonsterSounds.HIT})
 	return false
 
 
@@ -452,7 +454,7 @@ func _mon_act(gp: Dictionary, m: Dictionary) -> void:
 				t.status = "POISON"
 				Game.say("%s IS POISONED!" % t.name, "hit")
 		return
-	attacks.append(gp["id"])
+	sounds.append({"id": gp["id"], "event": MonsterSounds.ATTACK})
 	var front: Array = Game.party_chars().slice(0, 3).filter(func(c): return c.is_alive())
 	var t: Character = Dice.pick(front if not front.is_empty() else ps)
 	var hits := 0

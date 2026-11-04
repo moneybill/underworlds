@@ -152,9 +152,20 @@ func run() -> int:
 	check(not main._backdrop.visible and main._view_box.visible and main._header.visible, "other screens keep the normal layout")
 	main.town.tavern()
 	var tavern_art: Texture2D = main._backdrop.texture
-	check(main._gear.visible and not main._table.visible, "the tavern shows the party as a grid instead of the table")
+	check(not main._gear.visible and not main._table.visible, "the tavern opens on its clear painting")
+	var menu_button := func(label: String) -> Button:
+		for b in main._opts_flow.get_children():
+			if not b.is_queued_for_deletion() and b.text == label:
+				return b
+		return null
+	check(main._gear.get_theme_stylebox("panel").bg_color.a < 0.5 and main._panel.get_theme_stylebox("panel").bg_color.a < 0.88, "the painting shows through the panels")
+	menu_button.call(g.party_chars()[0].name).pressed.emit()
+	check(main._gear.visible and not main._table.visible, "clicking a member's name brings up the cards")
+	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").bg_color.a < 1.0, "the painting shows through the cards")
 	check(main._gear_grid.get_child_count() == PartyCards.COLUMNS * PartyCards.ROWS, "the tavern's grid has every party slot")
 	var tavern_button := func(label: String) -> Button:
+		if main._gear_row == null:
+			return null
 		for b in main._gear_row.find_children("*", "Button", true, false):
 			if b.text == label:
 				return b
@@ -165,10 +176,16 @@ func run() -> int:
 	var tavern_first: Character = g.party_chars()[0]
 	var tavern_few: Array = tavern_party.slice(0, 3)
 	g.party.assign(tavern_few)
+	main.town._selected = null
 	main.town.tavern()
-	check(tavern_labels.call().is_empty(), "the left panel no longer lists party members or buttons")
-	check(tavern_button.call("ADD") != null and tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "with nobody selected, DROP and INSPECT stay hidden")
-	check(tavern_button.call("DIVVY GOLD") != null, "DIVVY GOLD sits under the cards")
+	var few_names: Array = g.party_chars().map(func(c): return c.name)
+	check(tavern_labels.call() == few_names + ["ADD", "DIVVY GOLD"], "the clear painting has a small menu of names, ADD and DIVVY GOLD")
+	check(menu_button.call("ADD").get_theme_stylebox("normal").bg_color == main.PAGER_FILL and menu_button.call("ADD").get_theme_font_size("font_size") == main.PAGER_FONT, "the small menu is small and brown")
+	check(tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "with nobody selected, DROP and INSPECT stay hidden")
+	check(main._exit_row.visible and main._exit_row.get_child(main._exit_row.get_child_count() - 1).text == "EXIT", "EXIT has its place on the clear painting too")
+	main.town.select_member(tavern_first)
+	check(tavern_labels.call().is_empty(), "with the cards up, the left panel lists nothing")
+	check(tavern_button.call("ADD") != null and tavern_button.call("DROP") != null and tavern_button.call("INSPECT") != null and tavern_button.call("DIVVY GOLD") != null, "the buttons sit under the cards")
 	var exit_button := func() -> Button:
 		return main._exit_row.get_child(main._exit_row.get_child_count() - 1)
 	check(main._exit_row.visible and exit_button.call().text == "EXIT" and tavern_button.call("EXIT") == null, "EXIT sits in the left panel, not under the cards")
@@ -178,10 +195,9 @@ func run() -> int:
 	check(hint_label.text == "Click a party member to select them." and hint_label.get_theme_font_size("font_size") == 18, "the hint tops the cards, four sizes smaller")
 	check(exit_button.call().get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL and exit_button.call().get_theme_font_size("font_size") < 22, "the main screen's EXIT is small and red")
 	check(main._exit_row.get_parent() == main._body.get_parent() and main._exit_row.get_index() > main._body.get_index() and main._exit_row.get_index() < main._log.get_index(), "EXIT sits under the text, above the log")
-	var tavern_cell: Control = main._gear_grid.get_child(0)
-	var tavern_hit: Button = tavern_cell.get_child(1)
-	tavern_hit.pressed.emit()
-	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card selects that member")
+	main._gear_grid.get_child(1).get_child(1).pressed.emit()
+	check(main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card selects that member")
+	main._gear_grid.get_child(0).get_child(1).pressed.emit()
 	var tavern_row: Control = main._gear_row
 	check(tavern_button.call("ADD").get_parent() == tavern_row.get_child(0) and tavern_button.call("ADD").get_index() == 0 and tavern_button.call("DROP").get_index() == 1, "DROP sits right of ADD")
 	check(tavern_button.call("DIVVY GOLD").get_parent() == tavern_row.get_child(1), "DIVVY GOLD sits in the center")
@@ -195,21 +211,28 @@ func run() -> int:
 	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "the selection survives inspecting")
 	tavern_button.call("DROP").pressed.emit()
 	check(not g.party.has(tavern_first.id) and g.party.size() == tavern_few.size() - 1, "DROP takes the selected member out of the party")
-	check(tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "removing clears the selection")
+	check(not main._gear.visible and tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "dropping the selected member clears the cards")
 	g.party.assign(tavern_party)
 	main.town.tavern()
-	check(g.party.size() == main.town.MAX_PARTY and tavern_button.call("ADD") == null, "a full party hides ADD")
+	check(g.party.size() == main.town.MAX_PARTY and menu_button.call("ADD") == null, "a full party hides ADD")
 	g.party.assign(tavern_few)
+	main.town.select_member(tavern_first)
+	exit_button.call().pressed.emit()
+	check(main.scr["title"] == "Gilgamesh's Tavern" and not main._gear.visible, "EXIT from the cards returns to the clear painting")
+	exit_button.call().pressed.emit()
+	check(main.scr["title"] == "Castle", "and EXIT again leaves")
+	main.town.tavern()
 	main.town.select_member(tavern_first)
 	main.town.castle()
 	main.town.tavern()
-	check(tavern_button.call("DROP") == null, "leaving the tavern clears the selection")
+	check(not main._gear.visible, "leaving the tavern clears the selection")
 	main.town.boltac()
 	check(main.scr["body"].contains("cedar shavings"), "Boltac's has its description")
-	check(tavern_labels.call().is_empty() and exit_button.call().text == "EXIT", "Boltac's lists no names and has EXIT in the left panel")
-	check(not main.scr["body"].contains("Click a party member") and main._gear_grid.get_parent().get_child(0).text == "Click a party member to select them.", "Boltac's hint tops the cards too")
+	check(not main._gear.visible and not main._table.visible, "Boltac's opens on its clear painting")
+	check(tavern_labels.call() == few_names and exit_button.call().text == "EXIT", "Boltac's small menu lists the names, and has EXIT in the left panel")
 	check(tavern_button.call("BUY") == null and tavern_button.call("POOL GOLD") == null, "nobody selected at Boltac's, no shop buttons")
-	main._gear_grid.get_child(1).get_child(1).pressed.emit()
+	menu_button.call(few_names[1]).pressed.emit()
+	check(not main.scr["body"].contains("Click a party member") and main._gear_grid.get_parent().get_child(0).text == "Click a party member to select them.", "Boltac's hint tops the cards too")
 	check(main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card at Boltac's selects that member")
 	check(tavern_labels.call().is_empty() and tavern_button.call("BUY") != null and tavern_button.call("SELL") != null and tavern_button.call("POOL GOLD") != null, "selecting at Boltac's offers the shop under the cards")
 	for shop_label in ["BUY", "SELL", "POOL GOLD"]:
@@ -302,6 +325,8 @@ func run() -> int:
 	press("L")
 	check(main.scr["title"] == "Gilgamesh's Tavern", "inspect returns to the tavern")
 	check(main._gear.visible, "the grid comes back after inspecting")
+	press("L")
+	check(main.scr["title"] == "Gilgamesh's Tavern" and not main._gear.visible, "EXIT closes the cards first")
 	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving the tavern clears its painting")
 	check(not main._gear.visible, "leaving the tavern clears the grid")
@@ -526,7 +551,7 @@ func _test_town_map(g) -> void:
 	check(is_equal_approx(two_cards[0].get_center().y, mid_of_view.y) and is_equal_approx(two_cards[1].get_center().y, mid_of_view.y) and is_equal_approx((two_cards[0].get_center().x + two_cards[1].get_center().x) / 2.0, mid_of_view.x), "two groups are centered in a row")
 	check(two_cards[0].size.x == MazeView.CARD_PAIR and MazeView.CARD_PAIR > MazeView.CARD_GRID, "two groups are larger than three or four")
 	var three_cards: Array = MazeView.card_rects(3)
-	check(is_equal_approx(three_cards[2].get_center().x, mid_of_view.x) and is_equal_approx((three_cards[0].get_center().x + three_cards[1].get_center().x) / 2.0, mid_of_view.x) and is_equal_approx((three_cards[0].position.y + three_cards[2].end.y) / 2.0, mid_of_view.y), "three groups make two over one, centered")
+	check(is_equal_approx(three_cards[2].get_center().x, mid_of_view.x) and is_equal_approx((three_cards[0].get_center().x + three_cards[1].get_center().x) / 2.0, mid_of_view.x) and is_equal_approx((three_cards[0].position.y + three_cards[2].end.y) / 2.0, mid_of_view.y - MazeView.GRID_LIFT), "three groups make two over one, centered across and lifted for the text below")
 	var four_cards: Array = MazeView.card_rects(4)
 	check(four_cards[0].position.y == four_cards[1].position.y and four_cards[2].position.y == four_cards[3].position.y and four_cards[0].position.x == four_cards[2].position.x and four_cards[0].position.y < four_cards[2].position.y, "four groups make a 2x2 grid")
 	var keep_kind: String = main.view.kind
@@ -687,6 +712,8 @@ func _test_town_map(g) -> void:
 			if map_world._level.mesh.surface_get_material(surface).albedo_texture == MazeWorld.OPEN_DOOR_ART[0]:
 				return true
 		return false
+	g.opened = {}  # a walk earlier in the test may have opened one
+	map_world.sync_to_party()
 	check(not shows_open.call(), "no door shows open at first")
 	var lv_one: MazeLevel = g.levels[1]
 	for open_y in MazeLevel.N:
@@ -727,6 +754,52 @@ func _test_town_map(g) -> void:
 	var rect: Rect2 = main.town_map._map_rect()
 	check(absf(rect.size.x / rect.size.y - 16.0 / 9.0) < 0.001, "the map is 16:9")
 	check(main.town_map._texture != null and absf(float(main.town_map._texture.get_width()) / main.town_map._texture.get_height() - 16.0 / 9.0) < 0.001, "the painting is 16:9")
+	for map_smoke in [main.town_map._smoke, main.town_map._mist]:
+		check(map_smoke.mouse_filter == Control.MOUSE_FILTER_IGNORE and map_smoke.get_index() < main.town_map._party_panel.get_index(), "smoke lets clicks through and sits under the panels")
+	for smoke_kind in [MapSmoke.CHIMNEY, MapSmoke.MAZE_MIST]:
+		var smoke_ok := true
+		for smoke_i in 300:
+			var smoke_puff := MapSmoke.puff(smoke_kind, smoke_i % smoke_kind["puffs"], smoke_i * 0.17)
+			smoke_ok = smoke_ok and smoke_puff["strength"] >= 0.0 and smoke_puff["strength"] <= smoke_kind["strength"]
+		check(smoke_ok, "smoke fades as it goes")
+		check(MapSmoke.puff(smoke_kind, 0, 0.0)["width"] < MapSmoke.puff(smoke_kind, 0, smoke_kind["life"] * 0.9)["width"], "smoke spreads as it goes")
+	var chimney_top := MapSmoke.puff(MapSmoke.CHIMNEY, 0, MapSmoke.CHIMNEY["life"] * 0.9)
+	check(chimney_top["offset"].y < 0.0, "the chimney's smoke rises")
+	var mist_far := MapSmoke.puff(MapSmoke.MAZE_MIST, 0, MapSmoke.MAZE_MIST["life"] * 0.9)
+	check(mist_far["offset"].x < 0.0 and mist_far["offset"].y > 0.0 and MapSmoke.MAZE_MIST["squash"] < 1.0, "the Maze's mist flows low, out and down its steps")
+	check(MapSmoke.MAZE_MIST["lit"] == Color.WHITE, "and it is white")
+	check((main.town_map._torch_window != null) == ResourceLoader.exists(TownMap.FIRE_SCENE), "the Maze's torch burns when the Vefects pack is installed")
+	if main.town_map._torch_window != null:
+		var torch_fire: Node3D = main.town_map._torch_window.get_child(0).get_child(1)
+		check(torch_fire.find_children("*", "AudioStreamPlayer3D", true, false).is_empty(), "the torch makes no sound")
+		check(torch_fire.find_children("*", "GPUParticles3D", true, false).all(func(n): return n.speed_scale == TownMap.FIRE_SPEED), "the torch burns slowly")
+		check(TownMap.TORCH_WINDOW.y < TownMap.FIRE_WINDOW.y, "and smaller than the campfire")
+	var forges: ForgeGlow = main.town_map._forges
+	check(forges.mouse_filter == Control.MOUSE_FILTER_IGNORE, "the forge glow lets clicks through")
+	check(forges.get_index() < main.town_map._party_panel.get_index(), "the forge glow sits under the corner panels")
+	var heats := []
+	for heat_i in 40:
+		heats.append(ForgeGlow.heat(ForgeGlow.FORGES[0]["phase"], heat_i * 0.2))
+	check(heats.min() >= 0.0 and heats.max() <= 1.0 and heats.max() - heats.min() > 0.3, "the forges pulse")
+	check(ForgeGlow.heat(ForgeGlow.FORGES[0]["phase"], 1.0) != ForgeGlow.heat(ForgeGlow.FORGES[1]["phase"], 1.0), "each forge pulses on its own")
+	var ember_source: Dictionary = ForgeGlow.EMBERS[0]
+	var ember_ok := true
+	for ember_i in 200:
+		var ember_now := ForgeGlow.ember(ember_source, ember_i % ember_source["count"], ember_i * 0.07)
+		ember_ok = ember_ok and ember_now["offset"].y <= 0.0 and ember_now["offset"].y >= -ember_source["rise"] and ember_now["bright"] >= 0.0 and ember_now["bright"] <= 1.0
+	check(ember_ok, "embers only rise, and fade in and out")
+	var fire_window: SubViewportContainer = main.town_map._fire_window
+	check((fire_window != null) == ResourceLoader.exists(TownMap.FIRE_SCENE), "the campfire burns when the Vefects pack is installed")
+	if fire_window != null:
+		var fire_scene: Node3D = fire_window.get_child(0).get_child(1)
+		check(fire_scene.find_children("*", "AudioStreamPlayer3D", true, false).is_empty(), "the village campfire makes no sound")
+		check(not fire_scene.get_children().any(func(n): return "intensity_multiplier" in n), "the village campfire has no light of its own")
+		var fire_flames := fire_scene.find_children("*", "GPUParticles3D", true, false)
+		check(not fire_flames.is_empty() and fire_flames.all(func(n): return n.speed_scale == TownMap.FIRE_SPEED), "the village campfire burns slowly")
+		check(fire_window.mouse_filter == Control.MOUSE_FILTER_IGNORE, "the fire lets clicks through")
+		check(fire_window.get_index() < main.town_map._party_panel.get_index(), "the fire burns under the corner panels")
+		var fire_foot: Vector2 = fire_window.position + Vector2(fire_window.size.x * 0.5, fire_window.size.y * (1.0 - TownMap.FIRE_BASE_HEIGHT))
+		check(fire_foot.distance_to(main.town_map.view_point(TownMap.FIRE_BASE)) < 1.0, "the fire stands on the campfire")
 	for o in main.scr["opts"]:
 		check(TownMap.SPOTS.has(o["k"]), "%s has a building on the map" % o["label"])
 	_click_spot("B")
@@ -853,8 +926,10 @@ func _test_town_map(g) -> void:
 	var boltac_art: Texture2D = main._backdrop.texture
 	check(main._backdrop.visible and boltac_art != null, "clicking Boltac's shows its painting")
 	check(absf(float(boltac_art.get_width()) / boltac_art.get_height() - 16.0 / 9.0) < 0.001, "Boltac's painting is 16:9")
-	check(main._gear.visible and not main._table.visible, "Boltac's shows the party as a grid instead of the table")
+	check(not main._gear.visible and not main._table.visible, "Boltac's opens on the clear painting")
 	var gear_hero: Character = g.party_chars()[0]
+	main.town.shop(gear_hero)
+	check(main._gear.visible and not main._table.visible, "picking a member shows the party as a grid instead of the table")
 	var gear_keep: Array = gear_hero.items
 	gear_hero.items = []
 	main.rerender()
@@ -894,6 +969,8 @@ func _test_town_map(g) -> void:
 	press("S")
 	check(main.scr["title"] == "Sell" and main._backdrop.texture == boltac_art, "selling keeps the painting")
 	press("L")
+	press("L")
+	check(main.scr["title"] == "Boltac's Trading Post" and not main._gear.visible, "EXIT closes Boltac's cards first")
 	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving Boltac's clears its painting")
 	check(not main._gear.visible, "leaving Boltac's clears the party grid")
@@ -1029,21 +1106,29 @@ func _test_start_flow(g, roster_size: int) -> void:
 	title._input(_release())
 	check(title.nav.visible and not title._tap.visible, "a tap brings up the buttons")
 	check(await _scene_is("res://scenes/title.tscn") and title.get_node("Art").visible, "the title stays up behind the buttons")
-	check(title.nav.get_global_rect().get_center().distance_to(title.get_global_rect().get_center()) < 1.0, "the title's buttons sit at the centre of the screen")
+	var title_rect: Rect2 = title.get_global_rect()
+	var venture_rect: Rect2 = title.venture_button.get_global_rect()
+	var options_rect: Rect2 = title.options_button.get_global_rect()
+	check(absf(venture_rect.get_center().x - title_rect.get_center().x) < 1.0, "venture onwards stays centered")
+	check(absf(venture_rect.position.y - title_rect.size.y * title.VENTURE_TOP) < 1.0, "venture onwards starts under the torch")
+	check(venture_rect.end.y < title_rect.end.y, "venture onwards fits on the screen")
+	check(absf(options_rect.end.x - (title_rect.end.x - title.OPTIONS_MARGIN)) < 1.0 and absf(options_rect.end.y - (title_rect.end.y - title.OPTIONS_MARGIN)) < 1.0, "options sits in the bottom right corner")
 	check(title.venture_button.text == "Venture Onwards" and title.options_button.text == "Options" and title.nav.get_child_count() == 2, "the title has its two buttons")
-	check(title.venture_button.get_theme_stylebox("normal").texture == load("res://assets/images/buttons/large_normal.png") and title.venture_button.get_theme_stylebox("pressed").texture == load("res://assets/images/buttons/large_pressed.png"), "venture onwards uses the large button art")
-	check(title.options_button.get_theme_stylebox("normal").texture == load("res://assets/images/buttons/medium_normal.png"), "options uses the medium button art")
+	check(title.venture_button.get_theme_stylebox("normal").bg_color == UiStyle.C_STONE2, "venture onwards is a regular button")
+	check(title.options_button.get_theme_stylebox("normal").bg_color == UiStyle.C_BROWN and title.options_button.get_theme_font_size("font_size") == UiStyle.SMALL_BUTTON_FONT, "options is a small brown button")
 
 	# Options opens the panel and Back closes it.
 	title.options_button.pressed.emit()
 	check(title.options_panel.visible and not title.nav.visible, "options opens its panel")
-	check(title.fast_results_button.text == "Fast Combat Results: Off", "fast combat results starts off")
+	check(title.fast_results_label.text == "Fast Combat Results" and not title.fast_results_button.on, "fast combat results starts off")
+	check(title.fast_results_button is ToggleSwitch and title.fast_results_button.get_parent() == title.fast_results_label.get_parent() and title.fast_results_button.get_index() > title.fast_results_label.get_index(), "its switch sits to the right of its name")
+	check(title.back_button.get_theme_stylebox("normal").bg_color == UiStyle.C_BROWN, "back is a small brown button")
 	title.fast_results_button.pressed.emit()
-	check(g.fast_results and title.fast_results_button.text == "Fast Combat Results: On", "the option turns on")
+	check(g.fast_results and title.fast_results_button.on, "the option turns on")
 	g.load_settings()
 	check(g.fast_results, "the option is remembered")
 	title.fast_results_button.pressed.emit()
-	check(not g.fast_results and title.fast_results_button.text == "Fast Combat Results: Off", "the option turns off")
+	check(not g.fast_results and not title.fast_results_button.on, "the option turns off")
 	g.load_settings()
 	check(not g.fast_results, "and stays off")
 	title.back_button.pressed.emit()
@@ -1138,7 +1223,23 @@ func _test_start_flow(g, roster_size: int) -> void:
 		sw_scene.view._gui_input(aim_ev)
 	var aim_cards: Array = MazeView.card_rects(3)
 	sw_scene.fight._choose_group([0, 1], aim_pick, aim_back)
-	check(sw_scene.scr.get("title", "") == "Choose a target", "the target screen shows")
+	check(sw_scene._view_note.visible and sw_scene._view_note.text == "Choose a target", "the target screen asks for a target")
+	check(sw_scene._view_note.get_theme_color("font_color") == Color.WHITE and sw_scene._view_note.get_theme_font_size("font_size") == PartyCards.FONT_SIZE and not sw_scene._view_note.has_theme_font_override("font"), "in white, in the party cards' font")
+	check(sw_scene._view_note.get_parent() == sw_scene.view, "inside the Maze window")
+	for note_groups in [2, 3, 4]:
+		var note_battle := Battle.new()
+		for note_g in note_groups:
+			note_battle.groups.append(Battle.mk_group("RAT", 1))
+		sw_scene.view.battle = note_battle
+		sw_scene._place_view_note()
+		var note_top: float = sw_scene._view_note.position.y
+		var note_scale: float = sw_scene.view.size.y / MazeView.H
+		check(note_top >= MazeView.card_rects(note_groups)[-1].end.y * note_scale, "under %d groups of monsters" % note_groups)
+		check(note_top + sw_scene._view_note.size.y <= sw_scene.view.size.y, "and inside the window with %d groups" % note_groups)
+		check(absf(sw_scene._view_note.position.x + sw_scene._view_note.size.x * 0.5 - sw_scene.view.size.x * 0.5) < 1.0, "and centered with %d groups" % note_groups)
+	sw_scene.view.battle = sw_scene.fight.battle
+	sw_scene._place_view_note()
+	check(not sw_scene._title.visible and not sw_scene._body.visible and sw_scene._body.text == "", "the side window drops its title and the click text")
 	aim_click.call(Vector2(4, 4))
 	check(aimed[0] == -1, "clicking the Maze picks nothing")
 	aim_click.call(aim_cards[2].get_center())
@@ -1168,6 +1269,8 @@ func _test_start_flow(g, roster_size: int) -> void:
 	sw_scene.view.battle = turn_battle
 	var keep_cls: String = god_hero.cls
 	var keep_lvl: int = god_hero.lvl
+	var keep_items := god_hero.items.duplicate()
+	god_hero.items.clear()  # a found magic item would add USE ITEM to the options
 	god_hero.lvl = 13
 	var turn_labels := func(turn_i: int, turn_cls: String) -> Array:
 		god_hero.cls = turn_cls
@@ -1200,6 +1303,12 @@ func _test_start_flow(g, roster_size: int) -> void:
 	check(stab_hits > 0 and stab_ok, "a backstab says so, and lands for multiplied damage")
 	sw_scene.fight.next_cmd(0)
 	var turn_grid: GridContainer = sw_scene.scr["widget"]
+	var card_texts := func(card_i: int) -> Array:
+		return turn_grid.get_child(card_i).find_children("*", "Label", true, false).map(func(n): return n.text)
+	check(not sw_scene._view_note.visible and sw_scene._title.visible, "other screens hide the note and show their title")
+	check(card_texts.call(0).has("LVL %d %s" % [god_hero.lvl, god_hero.cls]), "a combat card shows level and class")
+	for card_i in turn_grid.get_child_count():
+		check(not card_texts.call(card_i).any(func(t): return t.begins_with("Weapon:") or t.begins_with("Shield:")), "combat cards leave out equipment")
 	check(turn_grid.columns == 3 and turn_grid.get_child_count() == 6, "the party shows as two rows of three")
 	check(not sw_scene._table.visible, "the party table hides while the grid shows")
 	var grid_buttons := turn_grid.get_child(0).find_children("*", "Button", true, false)
@@ -1248,13 +1357,39 @@ func _test_start_flow(g, roster_size: int) -> void:
 	tomb_grid.free()
 	god_hero.status = keep_status
 	god_hero.cls = keep_cls
+	god_hero.items.assign(keep_items)
 	god_hero.lvl = keep_lvl
 	sw_scene.mz.maze()
 	check(sw_scene._table.visible, "the party table returns after the fight")
 	print("attack sounds")
-	check(CombatScreens.ATTACK_SOUNDS["SLIME"].size() == 4, "the slime has its four attack sounds")
-	for sfx_stream in CombatScreens.ATTACK_SOUNDS["SLIME"]:
+	var slime_attacks: Array = MonsterSounds.BY_MONSTER["SLIME"][MonsterSounds.ATTACK]
+	check(slime_attacks.size() == 4, "the slime has its four attack sounds")
+	for sfx_stream in slime_attacks:
 		check(sfx_stream is AudioStreamWAV and sfx_stream.get_length() > 1.0, "a slime sound loads")
+	var sound_events: Array = [MonsterSounds.IDLE] + MonsterSounds.LOUDEST_FIRST
+	check(sound_events.size() == 4, "a monster has four kinds of sound")
+	for sfx_id in MonsterSounds.BY_MONSTER:
+		check(Data.MONS.has(sfx_id), "%s is a monster" % sfx_id)
+		for sfx_event in MonsterSounds.BY_MONSTER[sfx_id]:
+			check(sound_events.has(sfx_event), "%s is a kind of sound" % sfx_event)
+	var fake_sounds := {"ORC": {"idle": ["orc idle"], "attack": ["orc attack"], "hit": ["orc hit"], "death": ["orc death"]}, "RAT": {"hit": ["rat hit"], "idle": ["rat idle"]}}
+	var orc_event := func(event: String) -> Dictionary:
+		return {"id": "ORC", "event": event}
+	check(MonsterSounds.for_events([orc_event.call("attack")], fake_sounds) == ["orc attack"], "an attack plays the attack sound")
+	check(MonsterSounds.for_events([orc_event.call("hit")], fake_sounds) == ["orc hit"], "a hit plays the hit sound")
+	check(MonsterSounds.for_events([orc_event.call("hit"), orc_event.call("death")], fake_sounds) == ["orc death"], "a death is heard over a hit")
+	check(MonsterSounds.for_events([{"id": "RAT", "event": "death"}, orc_event.call("hit")], fake_sounds) == ["orc hit"], "a monster with no death sound lets another's hit be heard")
+	check(MonsterSounds.for_events([{"id": "RAT", "event": "attack"}], fake_sounds).is_empty(), "a missing sound is silent")
+	check(MonsterSounds.idle_for(["ORC", "RAT", "SLIME"], fake_sounds) == ["orc idle", "rat idle"], "idle sounds come from the monsters present")
+	var sound_battle := Battle.new()
+	sound_battle.groups.append(Battle.mk_group("ORC", 2))
+	var sound_orc: Dictionary = sound_battle.groups[0]["ms"][0]
+	sound_orc["hp"] = 10
+	sound_battle._hurt(sound_orc, 1)
+	check(sound_battle.sounds == [{"id": "ORC", "event": "hit"}], "a monster that lives through damage is hit")
+	sound_battle.sounds = []
+	sound_battle._hurt(sound_orc, 99)
+	check(sound_battle.sounds == [{"id": "ORC", "event": "death"}], "a monster that doesn't dies")
 	var sfx_fight: CombatScreens = sw_scene.fight
 	var sfx_start := func(sfx_id: String, sfx_n: int) -> Battle:
 		var sfx_b := Battle.new()

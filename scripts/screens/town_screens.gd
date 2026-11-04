@@ -7,9 +7,11 @@ const TAVERN_IMAGE := "res://assets/images/tavern.webp"
 const BOLTAC_IMAGE := "res://assets/images/boltac.webp"
 const GEAR_PLACES := [TAVERN_IMAGE, BOLTAC_IMAGE]  # the buildings that show the party with its equipment
 const GEAR_SLOTS := [["Weapon", "W"], ["Helm", "H"], ["Armor", "A"], ["Shield", "S"]]  # in Data.ITEMS' slot letters
+const CARD_ALPHA := 0.5  # the painting shows through the cards
 const GEAR_FONT := 15
 const GEAR_FONT_MIN := 11
 const MAX_PARTY := 6
+const SELECT_HINT := "Click a party member to select them."
 const BUY_OFFER := "I will haggle no further, this is my best price!"
 const SELL_OFFER := "This is my offer, take it or leave it..."
 const BUY_NOTE_FONT := 18  # four sizes under the body text
@@ -55,17 +57,36 @@ func tavern() -> void:
 	if not ps.has(_selected):
 		_selected = null
 	var chosen := _selected != null
-	var opts := [
-		{"k": "A", "label": "ADD", "in_widget": true, "small": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
-		{"k": "R", "label": "DROP", "in_widget": true, "small": true, "hide": not chosen, "fn": _remove.bind(_selected)},
-		{"k": "D", "label": "DIVVY GOLD", "in_widget": true, "small": true, "gear_at": "center", "dis": ps.is_empty(), "fn": _divvy},
-		{"k": "I", "label": "INSPECT", "in_widget": true, "small": true, "gear_at": "right", "hide": not chosen, "fn": ui.chars.inspect.bind(_selected, "tavern", tavern)},
-		{"k": "L", "label": "EXIT", "fn": castle},
-	]
-	var hint := "Click a party member to select them." if not ps.is_empty() else "Add adventurers to form a party."
+	var add := {"k": "A", "label": "ADD", "small": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)}
+	var divvy := {"k": "D", "label": "DIVVY GOLD", "small": true, "dis": ps.is_empty(), "fn": _divvy}
+	var opts := _member_buttons(select_member) + [add, divvy, {"k": "L", "label": "EXIT", "fn": castle}]
+	if chosen:  # the same buttons, now under the cards
+		add["in_widget"] = true
+		divvy["in_widget"] = true
+		divvy["gear_at"] = "center"
+		opts = [add,
+			{"k": "R", "label": "DROP", "in_widget": true, "small": true, "fn": _remove.bind(_selected)},
+			divvy,
+			{"k": "I", "label": "INSPECT", "in_widget": true, "small": true, "gear_at": "right", "fn": ui.chars.inspect.bind(_selected, "tavern", tavern)},
+			{"k": "L", "label": "EXIT", "fn": _close_cards.bind(tavern)},
+		]
 	ui.show_screen({"title": "Gilgamesh's Tavern", "where": "Gilgamesh's Tavern", "view": "tavern", "opts": opts,
-		"gear_pick": select_member, "gear_hint": hint,
+		"gear_pick": select_member, "gear_hint": SELECT_HINT,
 		"body": ui.flav("Smoke hangs over the scarred tables and a haunch of boar turns over the fire. Small groups of adventurers talk in low voices.")})
+
+
+## A small button for each member: what opens the party's cards over a painting.
+func _member_buttons(pick: Callable) -> Array:
+	var buttons := []
+	for c in Game.party_chars():
+		buttons.append({"k": "M%d" % buttons.size(), "label": c.name, "small": true, "fn": pick.bind(c)})
+	return buttons
+
+
+## Back from the cards to the clear painting.
+func _close_cards(place: Callable) -> void:
+	_selected = null
+	place.call()
 
 
 func select_member(c: Character) -> void:
@@ -101,11 +122,20 @@ func _divvy() -> void:
 # ---------- Boltac's Trading Post ----------
 ## The party with what each member has equipped.
 func gear_grid(on_click := Callable(), click_dead := true) -> GridContainer:
-	return PartyCards.grid(_fill_gear_cell, Game.party_chars().find(_selected), 4 + GEAR_SLOTS.size(), on_click, click_dead)
+	return PartyCards.grid(_fill_gear_cell, Game.party_chars().find(_selected), 4 + GEAR_SLOTS.size(), on_click, click_dead, CARD_ALPHA)
 
 
 func _fill_gear_cell(v: VBoxContainer, c: Character, _slot: int) -> void:
 	PartyCards.add_head(v, c, true)
+	add_gear_lines(v, c)
+	var gold := PartyCards.label("Gold: %d" % c.gold, UiStyle.C_TORCH)
+	gold.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	gold.add_theme_font_size_override("font_size", GEAR_FONT)
+	v.add_child(gold)
+
+
+## What a character has equipped, a line for each slot.
+func add_gear_lines(v: VBoxContainer, c: Character) -> void:
 	for gear in GEAR_SLOTS:
 		var it: Variant = c.equipped(gear[1])
 		var text := "%s: %s" % [gear[0], c.item_name(it) if it != null else "NONE"]
@@ -113,10 +143,6 @@ func _fill_gear_cell(v: VBoxContainer, c: Character, _slot: int) -> void:
 		line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 		line.add_theme_font_size_override("font_size", _gear_font(text))
 		v.add_child(line)
-	var gold := PartyCards.label("Gold: %d" % c.gold, UiStyle.C_TORCH)
-	gold.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	gold.add_theme_font_size_override("font_size", GEAR_FONT)
-	v.add_child(gold)
 
 
 ## The largest size at which this line fits a card, so a long item name still reads in full.
@@ -133,17 +159,20 @@ func boltac() -> void:
 	if not ps.has(_selected):
 		_selected = null
 	var c := _selected
-	var chosen := c != null
+	if c == null:
+		ui.show_screen({"title": "Boltac's Trading Post", "where": "Boltac's Trading Post", "view": "shop", "body": ui.flav(BOLTAC_TEXT),
+			"opts": _member_buttons(shop) + [{"k": "L", "label": "EXIT", "fn": castle}]})
+		return
 	ui.show_screen({"title": "Boltac's Trading Post", "where": "Boltac's Trading Post", "view": "shop",
-		"gear_pick": shop, "gear_hint": "Click a party member to select them.",
+		"gear_pick": shop, "gear_hint": SELECT_HINT,
 		"body": ui.flav(BOLTAC_TEXT),
 		"opts": [
-			{"k": "B", "label": "BUY", "in_widget": true, "small": true, "hide": not chosen, "fn": buy.bind(c, 0)},
-			{"k": "S", "label": "SELL", "in_widget": true, "small": true, "hide": not chosen, "fn": sell.bind(c)},
-			{"k": "U", "label": "UNCURSE", "in_widget": true, "small": true, "hide": not chosen or _fee_items(c, "U").is_empty(), "fn": fee_service.bind(c, "U")},
-			{"k": "I", "label": "IDENTIFY", "in_widget": true, "small": true, "hide": not chosen or _fee_items(c, "I").is_empty(), "fn": fee_service.bind(c, "I")},
-			{"k": "P", "label": "POOL GOLD", "in_widget": true, "small": true, "hide": not chosen, "fn": func(): Game.pool_gold(c); boltac()},
-			{"k": "L", "label": "EXIT", "fn": castle},
+			{"k": "B", "label": "BUY", "in_widget": true, "small": true, "fn": buy.bind(c, 0)},
+			{"k": "S", "label": "SELL", "in_widget": true, "small": true, "fn": sell.bind(c)},
+			{"k": "U", "label": "UNCURSE", "in_widget": true, "small": true, "hide": _fee_items(c, "U").is_empty(), "fn": fee_service.bind(c, "U")},
+			{"k": "I", "label": "IDENTIFY", "in_widget": true, "small": true, "hide": _fee_items(c, "I").is_empty(), "fn": fee_service.bind(c, "I")},
+			{"k": "P", "label": "POOL GOLD", "in_widget": true, "small": true, "fn": func(): Game.pool_gold(c); boltac()},
+			{"k": "L", "label": "EXIT", "fn": _close_cards.bind(boltac)},
 		]})
 
 

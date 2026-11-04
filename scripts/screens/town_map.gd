@@ -13,6 +13,16 @@ const PANEL_FONT := 16
 const PANEL_MARGIN := 22.0  # keeps the corner panels inside the painted frame
 const PARTY_PORTRAIT := 36.0
 const INFO_SIZE := Vector2(370, 76)
+## From the Vefects pack, which its licence keeps out of the public repository, so it may be missing.
+## Without it the painted campfire shows on its own.
+const FIRE_SCENE := "res://Vefects/Free Fire VFX/Particles/VFX_Fire_01_Small_Simple.tscn"
+const FIRE_BASE := Vector2(1219, 380)  # the middle of the fire ring, in SPOTS coordinates
+const FIRE_WINDOW := Vector2(160, 160)  # the size of the window the fire burns in, in SPOTS coordinates
+const TORCH_BASE := Vector2(1731, 206)  # the torch in the Maze's doorway
+const TORCH_WINDOW := Vector2(70, 70)  # the smaller the window, the smaller the fire
+const FIRE_BASE_HEIGHT := 0.15  # of the window, from its bottom edge
+const FIRE_VIEW_SIZE := 3.0  # the height of the window in the 3D world of the pack's fire
+const FIRE_SPEED := 0.25  # of the pack's speed, which looks frantic at this scale
 
 ## Keyed by option id. poly outlines the building; plate is the center of its name plate.
 const SPOTS := {
@@ -34,6 +44,11 @@ var _info: RichTextLabel
 var _info_panel: PanelContainer
 var _party: GridContainer
 var _party_panel: PanelContainer
+var _fire_window: SubViewportContainer
+var _torch_window: SubViewportContainer
+var _smoke: MapSmoke
+var _mist: MapSmoke
+var _forges: ForgeGlow
 
 
 func _init(root) -> void:
@@ -44,6 +59,15 @@ func _init(root) -> void:
 	mouse_exited.connect(_set_hover.bind(""))
 	resized.connect(queue_redraw)
 	resized.connect(_place_panels)
+	resized.connect(_place_fires)
+	_fire_window = _add_fire_window()
+	_torch_window = _add_fire_window()
+	_mist = MapSmoke.new(self, MapSmoke.MAZE_MIST)
+	add_child(_mist)
+	_smoke = MapSmoke.new(self, MapSmoke.CHIMNEY)
+	add_child(_smoke)
+	_forges = ForgeGlow.new(self)
+	add_child(_forges)
 	_party_panel = _corner_panel()
 	_party = GridContainer.new()
 	_party.columns = 6  # portrait, name, class, level, health, status
@@ -60,6 +84,47 @@ func _init(root) -> void:
 	_info.add_theme_font_size_override("normal_font_size", PANEL_FONT)
 	_info.add_theme_font_size_override("italics_font_size", PANEL_FONT)
 	_info_panel.add_child(_info)
+
+
+## The pack's fire is 3D, so each one burns in a small see-through window of its own over the painting.
+func _add_fire_window() -> SubViewportContainer:
+	if not ResourceLoader.exists(FIRE_SCENE):
+		return null
+	var window := SubViewportContainer.new()
+	window.stretch = true
+	window.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(window)
+	var view := SubViewport.new()
+	view.own_world_3d = true
+	view.transparent_bg = true
+	view.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+	window.add_child(view)
+	var camera := Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	camera.size = FIRE_VIEW_SIZE
+	camera.position = Vector3(0, FIRE_VIEW_SIZE * (0.5 - FIRE_BASE_HEIGHT), 5)
+	view.add_child(camera)
+	var fire: Node3D = (load(FIRE_SCENE) as PackedScene).instantiate()
+	for part in fire.get_children():
+		if part is AudioStreamPlayer3D or "intensity_multiplier" in part:  # silent, and nothing here to light
+			part.free()
+	for flames in fire.find_children("*", "GPUParticles3D", true, false):
+		flames.speed_scale = FIRE_SPEED
+	view.add_child(fire)
+	return window
+
+
+func _place_fires() -> void:
+	_place_fire(_fire_window, FIRE_BASE, FIRE_WINDOW)
+	_place_fire(_torch_window, TORCH_BASE, TORCH_WINDOW)
+
+
+func _place_fire(window: SubViewportContainer, base: Vector2, canvas_size: Vector2) -> void:
+	if window == null:
+		return
+	var box := canvas_size * _map_rect().size / CANVAS
+	window.size = box
+	window.position = view_point(base) - Vector2(box.x * 0.5, box.y * (1.0 - FIRE_BASE_HEIGHT))
 
 
 ## A dark panel over the painting that lets clicks through to the buildings beneath.

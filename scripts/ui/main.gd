@@ -7,14 +7,18 @@ const PORTRAIT_SIZE := 300.0
 const BACKDROP_COLUMN := 540.0  # width of the text column over a painted backdrop, clear of its center
 const GEAR_COLUMN := 600.0  # width of the party's equipment over a painting
 const GEAR_PANEL_MARGIN := 8.0  # inside its panel
+const GEAR_PANEL_ALPHA := 0.35  # the painting shows through, more so than through the text column
+const BACKDROP_PANEL_ALPHA := 0.7
 const CONFIRM_WIDTH := 560.0
 const CONFIRM_LAYER := 100  # above the test switches
 const CONFIRM_DIM := Color(0, 0, 0, 0.6)
 const GEAR_HINT_FONT := 18  # four sizes under the body text
+const VIEW_NOTE_DROP := 6.0  # below the monsters
+const VIEW_NOTE_BACK := Color(0, 0, 0, 0.7)  # keeps it readable over the painted walls
 const PAGER_DROP := 15.0  # extra room between a list and its row of small buttons
-const PAGER_FONT := 18
-const PAGER_FILL := Color("5a3d24")  # brown, to stand apart from the list above
-const PAGER_EDGE := Color("8a6238")
+const PAGER_FONT := UiStyle.SMALL_BUTTON_FONT
+const PAGER_FILL := UiStyle.C_BROWN  # to stand apart from the list above
+const PAGER_EDGE := UiStyle.C_BROWN_EDGE
 const PAGER_EXIT_FILL := Color("6e2a26")  # oxblood
 const PAGER_EXIT_EDGE := Color("a04a42")
 const GEAR_BUTTONS_HEIGHT := 40.0  # the row under the cards keeps its height with no buttons in it
@@ -38,6 +42,7 @@ var view: MazeView
 var scr: Dictionary = {}
 var _where: Label
 var _title: Label
+var _view_note: Label
 var _body: RichTextLabel
 var _widget_box: VBoxContainer
 var _portrait: PanelContainer
@@ -226,7 +231,7 @@ func _build_layout() -> void:
 	_side.visible = false
 	add_child(_side)
 	_gear = PanelContainer.new()
-	_gear.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.88), UiStyle.C_LINE, int(GEAR_PANEL_MARGIN)))
+	_gear.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, GEAR_PANEL_ALPHA), UiStyle.C_LINE, int(GEAR_PANEL_MARGIN)))
 	_gear.position = Vector2(GEAR_LEFT, GEAR_TOP)
 	_gear.custom_minimum_size.x = GEAR_COLUMN
 	_gear.visible = false
@@ -283,6 +288,18 @@ func _build_layout() -> void:
 		b.pressed.connect(_pad_press.bind(spec[1]))
 		_pad.add_child(b)
 	view.add_child(_pad)
+	_view_note = Label.new()  # in the picture, under the monsters
+	_view_note.add_theme_font_size_override("font_size", PartyCards.FONT_SIZE)
+	_view_note.add_theme_color_override("font_color", Color.WHITE)
+	var note_back := UiStyle.box(VIEW_NOTE_BACK, VIEW_NOTE_BACK, 0)
+	note_back.content_margin_left = 8.0
+	note_back.content_margin_right = 8.0
+	note_back.set_border_width_all(0)
+	_view_note.add_theme_stylebox_override("normal", note_back)
+	_view_note.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_view_note.visible = false
+	view.add_child(_view_note)
+	view.item_rect_changed.connect(_place_view_note)
 
 	_panel = PanelContainer.new()
 	_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -343,6 +360,7 @@ func _build_layout() -> void:
 # ---------- the menu system ----------
 ## s: {title, where, body (bbcode), opts: [{k (the option's id), label, fn, dis, hide, right}], col,
 ##     party_grid: the widget shows the party, so the party table hides,
+##     view_note: a line under the picture,
 ##     input: {ph, max, fn}, moves: {pad button: Callable}, view, pad, widget: Control, map, portrait: path, side: Control}
 func show_screen(s: Dictionary) -> void:
 	_close_confirm()
@@ -352,15 +370,22 @@ func show_screen(s: Dictionary) -> void:
 	_portrait_tomb.visible = s.get("portrait_dead", false)
 	_set_side(s.get("side"))
 	_title.text = s.get("title", "")
+	_title.visible = _title.text != ""
+	_view_note.text = s.get("view_note", "")
+	_view_note.visible = _view_note.text != ""
+	_place_view_note()
 	if s.has("where"):
 		_where.text = String(s["where"]).to_upper()
 	_body.text = s.get("body", "")
+	_body.visible = _body.text != ""
 	for n in _widget_box.get_children():
 		n.queue_free()
 	if s.has("widget"):
 		_widget_box.add_child(s["widget"])
 	# A screen with its own portrait, like Inspect, keeps that spot for it.
-	var gear: bool = TownScreens.GEAR_PLACES.has(place_image) and s.get("portrait", "") == ""
+	var card_place: bool = TownScreens.GEAR_PLACES.has(place_image) and s.get("portrait", "") == ""
+	# The painting stays clear until a party member is picked.
+	var gear: bool = card_place and town._selected != null
 	for n in _opts_flow.get_children() + _opts_col.get_children():
 		n.queue_free()
 	var col: bool = s.get("col", false)
@@ -372,14 +397,18 @@ func show_screen(s: Dictionary) -> void:
 	for o in opts:
 		if o.has("pager"):
 			continue  # these share the row under the list
-		if o.get("hide", false) or o.get("in_widget", false) or (gear and _is_exit(o)):
+		if o.get("hide", false) or o.get("in_widget", false) or (card_place and _is_exit(o)):
 			continue  # an in_widget option has its button in the screen's widget instead, and EXIT has its own place
-		var b := Button.new()
-		b.text = _opt_text(o)
-		b.focus_mode = Control.FOCUS_NONE
-		b.disabled = o.get("dis", false)
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.pressed.connect(_run.bind(o))
+		var b: Button
+		if o.get("small", false):
+			b = _small_button(o, PAGER_FILL, PAGER_EDGE)
+		else:
+			b = Button.new()
+			b.text = _opt_text(o)
+			b.focus_mode = Control.FOCUS_NONE
+			b.disabled = o.get("dis", false)
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.pressed.connect(_run.bind(o))
 		(_opts_col if col else _opts_flow).add_child(b)
 	_pager_row = null
 	if opts.any(func(o): return o.has("pager")):
@@ -397,7 +426,9 @@ func show_screen(s: Dictionary) -> void:
 	else:
 		_entry.release_focus()
 	_pad.visible = s.get("pad", false)
-	_table.visible = not s.has("party_grid") and not gear
+	_table.visible = not s.has("party_grid") and not card_place
+	_gear_grid = null
+	_gear_row = null
 	for n in _gear.get_children():
 		n.queue_free()
 	_gear.visible = gear
@@ -416,8 +447,8 @@ func show_screen(s: Dictionary) -> void:
 		gear_box.add_child(_gear_row)
 	for n in _exit_row.get_children():
 		n.queue_free()
-	_exit_row.visible = gear
-	if gear:
+	_exit_row.visible = card_place
+	if card_place:
 		for o in opts:
 			if _is_exit(o) and not o.get("hide", false) and not o.has("pager"):
 				_exit_row.add_child(_small_button(o, PAGER_EXIT_FILL, PAGER_EXIT_EDGE))
@@ -429,6 +460,13 @@ func show_screen(s: Dictionary) -> void:
 	town_map.visible = s.get("map", false)
 	if town_map.visible:
 		town_map.show_options(s)
+
+
+func _place_view_note() -> void:
+	if not _view_note.visible:
+		return
+	_view_note.reset_size()
+	_view_note.position = Vector2((view.size.x - _view_note.size.x) * 0.5, view.cards_bottom() + VIEW_NOTE_DROP)
 
 
 ## The row under the cards: in_widget options at the left, or at their gear_at of center or right.
@@ -485,10 +523,7 @@ func _pager_buttons(opts: Array) -> HBoxContainer:
 
 func _small_button(o: Dictionary, fill: Color, edge: Color) -> Button:
 	var b := _gear_button(o)
-	b.add_theme_font_size_override("font_size", PAGER_FONT)
-	for st in ["normal", "focus"]:
-		b.add_theme_stylebox_override(st, UiStyle.box(fill, edge, 4))
-	b.add_theme_stylebox_override("hover", UiStyle.box(fill.lightened(0.15), edge, 4))
+	UiStyle.make_small_button(b, fill, edge)
 	return b
 
 
@@ -521,7 +556,7 @@ func _set_backdrop(path: String) -> void:
 		p.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN if on else Control.SIZE_EXPAND_FILL
 		p.custom_minimum_size.x = BACKDROP_COLUMN if on else 0.0
 		if on:
-			p.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.88), UiStyle.C_LINE, 8))
+			p.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, BACKDROP_PANEL_ALPHA), UiStyle.C_LINE, 8))
 		else:
 			p.remove_theme_stylebox_override("panel")
 

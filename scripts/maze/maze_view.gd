@@ -51,7 +51,8 @@ const MONSTER_ART := {
 }
 const CARD_SINGLE := 320.0  # a lone group of monsters
 const CARD_PAIR := 225.0  # each of two groups, nearly filling the window's width
-const CARD_GRID := 165.0  # each of three or four groups
+const CARD_GRID := 160.0  # each of three or four groups
+const GRID_LIFT := 9.0  # two rows sit this far above the middle, leaving room below for a line of text
 const CARD_GAP := 10.0
 const PLAQUE_HEIGHT := 28.0
 const PLAQUE_FILL := Color("2b1f16")
@@ -429,6 +430,12 @@ func _combat() -> void:
 
 
 ## Where the monster groups go, in order: up to two rows of two, with a lone group larger and in the middle.
+## Where the monsters' cards end, in this control's pixels.
+func cards_bottom() -> float:
+	var rects := card_rects(battle.alive_groups().size()) if battle != null else []
+	return (rects[-1].end.y if not rects.is_empty() else H) * size.y / H
+
+
 static func card_rects(count: int) -> Array:
 	if count <= 0:
 		return []
@@ -437,7 +444,7 @@ static func card_rects(count: int) -> Array:
 	var out := []
 	var rows := 1 if count == 2 else 2
 	var card := CARD_PAIR if count == 2 else CARD_GRID
-	var top := (H - rows * card - (rows - 1) * CARD_GAP) / 2.0
+	var top := (H - rows * card - (rows - 1) * CARD_GAP) / 2.0 - (GRID_LIFT if rows == 2 else 0.0)
 	for row in rows:
 		var in_row: int = mini(count - row * 2, 2)
 		var left := (W - in_row * card - (in_row - 1) * CARD_GAP) / 2.0

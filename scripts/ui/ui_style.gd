@@ -13,6 +13,9 @@ const C_TORCH := Color("e3a33f")
 const C_BLOOD := Color("d6563f")
 const C_MANA := Color("8bace6")
 const C_MOSS := Color("93c07e")
+const C_BROWN := Color("5a3d24")
+const C_BROWN_EDGE := Color("8a6238")
+const SMALL_BUTTON_FONT := 18
 
 
 static func mono_font() -> Font:
@@ -52,6 +55,14 @@ static func box(bg: Color, border: Color, pad := 8) -> StyleBoxFlat:
 	sb.set_border_width_all(1)
 	sb.set_content_margin_all(pad)
 	return sb
+
+
+## The small button style: a smaller font on a flat colour.
+static func make_small_button(b: Button, fill: Color = C_BROWN, edge: Color = C_BROWN_EDGE) -> void:
+	b.add_theme_font_size_override("font_size", SMALL_BUTTON_FONT)
+	for st in ["normal", "focus"]:
+		b.add_theme_stylebox_override(st, box(fill, edge, 4))
+	b.add_theme_stylebox_override("hover", box(fill.lightened(0.15), edge, 4))
 
 
 static func build_theme(mono: Font) -> Theme:

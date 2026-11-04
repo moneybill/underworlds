@@ -6,17 +6,18 @@ const GAME_SCENE := "res://scenes/main.tscn"
 const ART := "res://assets/images/title.webp"
 const BOTTOM_MARGIN := 36
 const PANEL_WIDTH := 360.0
-const BUTTON_ART := "res://assets/images/buttons/%s_%s.png"
-const ART_SCALE := 800.0 / 1080.0  # shows the art pixel for pixel in the 1920x1080 window
-const BUTTON_FONT := 30
-const TEXT_LIFT := 8  # centres the text on the plate, which sits above the ornament hanging off it
+const HEADING_FONT := 28
+const VENTURE_TOP := 0.82  # of the screen's height, just under the foot of the torch in the painting
+const VENTURE_SIZE := Vector2(300, 48)
+const OPTIONS_MARGIN := 24.0
 
-var nav: VBoxContainer
+var nav: Control
 var venture_button: Button
 var options_button: Button
 var options_panel: Control
 var back_button: Button
-var fast_results_button: Button
+var fast_results_button: ToggleSwitch
+var fast_results_label: Label
 var _tap: Label
 var _t := 0.0
 var _pressed := false
@@ -42,15 +43,27 @@ func _ready() -> void:
 	_tap.add_theme_color_override("font_outline_color", Color.BLACK)
 	add_child(_tap)
 	_pin_bottom(_tap)
-	nav = VBoxContainer.new()
-	nav.add_theme_constant_override("separation", 0)
+	nav = Control.new()
+	nav.set_anchors_preset(Control.PRESET_FULL_RECT)
+	nav.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	nav.visible = false
 	add_child(nav)
-	venture_button = _button("Venture Onwards", "large", _venture, nav)
-	options_button = _button("Options", "medium", _show_options.bind(true), nav)
-	nav.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	nav.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	nav.grow_vertical = Control.GROW_DIRECTION_BOTH
+	venture_button = _plain_button("Venture Onwards", _venture, nav)
+	venture_button.custom_minimum_size = VENTURE_SIZE
+	venture_button.anchor_left = 0.5
+	venture_button.anchor_right = 0.5
+	venture_button.anchor_top = VENTURE_TOP
+	venture_button.anchor_bottom = VENTURE_TOP
+	venture_button.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	options_button = _plain_button("Options", _show_options.bind(true), nav)
+	UiStyle.make_small_button(options_button)
+	options_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	options_button.offset_left = -OPTIONS_MARGIN
+	options_button.offset_right = -OPTIONS_MARGIN
+	options_button.offset_top = -OPTIONS_MARGIN
+	options_button.offset_bottom = -OPTIONS_MARGIN
+	options_button.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	options_button.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	_build_options()
 
 
@@ -70,39 +83,31 @@ func _build_options() -> void:
 	heading.text = "Options"
 	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	heading.add_theme_font_override("font", UiStyle.display_font())
-	heading.add_theme_font_size_override("font_size", 38)
+	heading.add_theme_font_size_override("font_size", HEADING_FONT)
 	heading.add_theme_color_override("font_color", UiStyle.C_TORCH)
 	v.add_child(heading)
-	fast_results_button = _button("", "xlarge", _toggle_fast_results, v)
+	var row := HBoxContainer.new()
+	v.add_child(row)
+	fast_results_label = Label.new()
+	fast_results_label.text = "Fast Combat Results"
+	fast_results_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(fast_results_label)
+	fast_results_button = ToggleSwitch.new()
+	fast_results_button.pressed.connect(_toggle_fast_results)
+	row.add_child(fast_results_button)
 	_show_fast_results()
-	back_button = _button("Back", "medium", _show_options.bind(false), v)
+	back_button = _plain_button("Back", _show_options.bind(false), v)
+	UiStyle.make_small_button(back_button)
+	back_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 
 
-func _button(text: String, art: String, handler: Callable, parent: Control) -> Button:
+func _plain_button(text: String, handler: Callable, parent: Control) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	var normal := _art_box(art, "normal")
-	b.custom_minimum_size = Vector2(normal.texture.get_size()) * ART_SCALE
-	for st in ["normal", "hover", "focus"]:
-		b.add_theme_stylebox_override(st, normal)
-	b.add_theme_stylebox_override("pressed", _art_box(art, "pressed"))
-	b.add_theme_font_override("font", UiStyle.display_font())
-	b.add_theme_font_size_override("font_size", BUTTON_FONT)
-	b.add_theme_color_override("font_hover_color", UiStyle.C_TORCH)
-	b.add_theme_color_override("font_pressed_color", UiStyle.C_INK)
 	b.pressed.connect(handler)
 	parent.add_child(b)
 	return b
-
-
-func _art_box(art: String, state: String) -> StyleBoxTexture:
-	var box := StyleBoxTexture.new()
-	box.texture = load(BUTTON_ART % [art, state])
-	box.content_margin_bottom = TEXT_LIFT
-	return box
 
 
 ## Bottom centre, growing up and out so it stays there whatever its size.
@@ -145,7 +150,7 @@ func _toggle_fast_results() -> void:
 
 
 func _show_fast_results() -> void:
-	fast_results_button.text = "Fast Combat Results: %s" % ("On" if Game.fast_results else "Off")
+	fast_results_button.on = Game.fast_results
 
 
 ## The game scene loads the save, or starts at the castle when there isn't one.
