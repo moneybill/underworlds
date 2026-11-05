@@ -149,6 +149,15 @@ func add_item(item_id: String, known: bool) -> bool:
 	return true
 
 
+## The sum of one bonus (like "dispel" or "pick") over everything worn.
+func worn_bonus(key: String) -> int:
+	var total := 0
+	for i in items:
+		if i["eq"]:
+			total += int(item_def(i).get(key, 0))
+	return total
+
+
 func ac() -> int:
 	var a := 10
 	for i in items:

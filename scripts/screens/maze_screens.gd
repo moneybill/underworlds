@@ -240,7 +240,7 @@ func forward() -> void:
 				c.hp = 0
 				c.status = "DEAD"
 				Game.say("%s SUCCUMBS TO POISON!" % c.name, "hit")
-		if c.is_alive() and c.hp < c.maxhp and c.items.any(func(it): return c.item_def(it).has("regen")):
+		if c.is_alive() and c.hp < c.maxhp and c.items.any(func(it): return c.item_def(it).has("regen")):  # the Book of Healing works in the pack
 			c.hp += 1
 	if Game.living().is_empty():
 		wiped()

@@ -7,6 +7,18 @@ const TAVERN_IMAGE := "res://assets/images/tavern.webp"
 const BOLTAC_IMAGE := "res://assets/images/boltac.webp"
 const GEAR_PLACES := [TAVERN_IMAGE, BOLTAC_IMAGE, INN_IMAGE]  # the buildings that show the party with its equipment
 const GEAR_SLOTS := [["Weapon", "W"], ["Helm", "H"], ["Armor", "A"], ["Shield", "S"]]  # in Data.ITEMS' slot letters
+## Classes that can't use helms or shields wear something of their own there instead.
+const CLASS_GEAR := {
+	"MAGE": [["Weapon", "W"], ["Amulet", "M"], ["Armor", "A"], ["Ring", "R"]],
+	"BISHOP": [["Weapon", "W"], ["Amulet", "M"], ["Armor", "A"], ["Cross", "C"]],
+	"PRIEST": [["Weapon", "W"], ["Cross", "C"], ["Armor", "A"], ["Shield", "S"]],
+	"THIEF": [["Weapon", "W"], ["Hood", "H"], ["Armor", "A"], ["Shield", "S"]],
+}
+
+
+## A character's four gear slots: [name, slot letter].
+static func gear_slots(c: Character) -> Array:
+	return CLASS_GEAR.get(c.cls, GEAR_SLOTS)
 const CARD_ALPHA := 0.72  # the painting shows through the cards
 const GEAR_ICON := 18.0  # an item's picture on a card, left of its name
 const GEAR_ICON_GAP := 4
@@ -233,8 +245,13 @@ func _fill_gear_cell(v: VBoxContainer, c: Character, _slot: int) -> void:
 
 ## What a character has equipped, a line for each slot.
 func add_gear_lines(v: VBoxContainer, c: Character) -> void:
-	for gear in GEAR_SLOTS:
+	for gear in gear_slots(c):
 		var it: Variant = c.equipped(gear[1])
+		if it == null and not Data.class_uses_slot(c.cdata()["l"], gear[1]):
+			var gap := Control.new()  # nothing this class can wear goes here; the room stays, so every card is the same height
+			gap.custom_minimum_size.y = PartyCards.LINE_HEIGHT
+			v.add_child(gap)
+			continue
 		var text := "%s: %s" % [gear[0], c.item_name(it) if it != null else "NONE"]
 		var pic: String = c.item_icon(it) if it != null else ""
 		var size := _gear_font(text, pic != "")

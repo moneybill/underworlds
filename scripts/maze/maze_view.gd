@@ -91,6 +91,7 @@ var mono: Font
 var battle: Battle = null
 var world: MazeWorld
 var camp_fire: FireWindow = null
+var camp_glow: CampGlow
 var _black: ColorRect  # over everything in the window, for fading
 var _fading := false
 static var instant_fades := false  # the self-test skips the wait
@@ -119,6 +120,8 @@ func _ready() -> void:
 	resized.connect(_fit_world)
 	get_viewport().size_changed.connect(_fit_world)
 	visibility_changed.connect(_update_world)
+	camp_glow = CampGlow.new(self)  # under the fire, which is added later
+	add_child(camp_glow)
 	_black = ColorRect.new()
 	_black.color = Color.BLACK
 	_black.modulate.a = 0.0
@@ -170,6 +173,8 @@ func _update_world() -> void:
 		world.set_active(_shows_maze() and is_visible_in_tree())
 		world.set_found_chest(kind == "chest" and is_visible_in_tree())
 	var camping := kind == "camp" and is_visible_in_tree()
+	if camp_glow != null:
+		camp_glow.visible = kind == "camp"
 	if camping and camp_fire == null:
 		camp_fire = FireWindow.make(CAMP_FIRE_SCENE, CAMP_FIRE_VIEW_SIZE, CAMP_FIRE_SPEED, CAMP_FIRE_SOUND)
 		if camp_fire != null:

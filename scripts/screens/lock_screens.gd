@@ -20,9 +20,9 @@ func _init(root) -> void:
 	ui = root
 
 
-## Thieves and ninjas use their level. Anyone else may try, as a thief of level 0.
+## Thieves and ninjas use their level. Anyone else may try, as a thief of level 0. A Shadow Hood adds to it.
 static func thief_level(c: Character) -> int:
-	return c.lvl if c.cdata().get("thief", false) or c.cdata().get("ninja", false) else 0
+	return (c.lvl if c.cdata().get("thief", false) or c.cdata().get("ninja", false) else 0) + c.worn_bonus("pick")
 
 
 ## How many times this character may study a lock: (Luck + 2 x thief level) / 2 / 10, to the nearest

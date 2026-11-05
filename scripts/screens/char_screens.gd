@@ -49,7 +49,7 @@ func inspect(c: Character, from: String, back: Callable) -> void:
 	var opts := [
 		{"k": "R", "label": "READ", "in_widget": true, "sheet_at": CharacterSheet.AT_BOOK, "fn": read_books.bind(c, again)},
 		{"k": "S", "label": "SPELL", "in_widget": true, "sheet_at": CharacterSheet.AT_BOOK, "hide": not camp, "dis": not c.can_act(), "fn": camp_spell.bind(c, again)},
-		{"k": "E", "label": "EQUIP", "in_widget": true, "sheet_at": CharacterSheet.AT_EQUIPMENT, "hide": not can, "fn": equip_flow.bind(c, again, ["W", "A", "S", "H"])},
+		{"k": "E", "label": "EQUIP", "in_widget": true, "sheet_at": CharacterSheet.AT_EQUIPMENT, "hide": not can, "fn": equip_flow.bind(c, again, TownScreens.gear_slots(c).map(func(g): return g[1]))},
 		{"k": "D", "label": "DISCARD", "in_widget": true, "sheet_at": CharacterSheet.AT_EQUIPMENT, "hide": not can, "fn": discard_item.bind(c, again)},
 		{"k": "T", "label": "TRADE", "in_widget": true, "sheet_at": CharacterSheet.AT_EQUIPMENT, "hide": not can or Game.party.size() < 2, "fn": trade.bind(c, again)},
 		{"k": "I", "label": "IDENTIFY", "in_widget": true, "sheet_at": CharacterSheet.AT_EQUIPMENT, "hide": not can or not c.cdata().get("ident", false), "fn": bishop_identify.bind(c, again)},

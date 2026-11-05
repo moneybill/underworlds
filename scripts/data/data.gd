@@ -183,13 +183,23 @@ const ITEMS := {
 	"helm1":    {"name": "HELM +1", "unk": "HELM", "slot": "H", "cls": "FSLN", "price": 3000, "ac": 2},
 	"rodflame": {"name": "ROD OF FLAME", "unk": "ROD", "slot": "U", "cls": ALL_CLASSES, "price": 2000, "spell": "MAHALITO", "ch": 12},
 	"staffmog": {"name": "STAFF OF MOGREF", "unk": "STAFF", "slot": "W", "cls": ALL_CLASSES, "price": 3000, "dmg": "1d5", "spell": "MOGREF", "ch": 10},
-	"ringheal": {"name": "RING OF HEALING", "unk": "RING", "slot": "R", "cls": ALL_CLASSES, "price": 6000, "regen": 1},
+	# Once the Ring of Healing; the id stays so old saves still load. Anyone may carry it, and it heals while carried.
+	"ringheal": {"name": "BOOK OF HEALING", "unk": "BOOK", "slot": "U", "cls": ALL_CLASSES, "price": 6000, "regen": 1},
 	"lsword2":  {"name": "LONG SWORD +2", "unk": "SWORD", "slot": "W", "cls": "FSLN", "price": 4000, "dmg": "1d8+2", "hit": 2},
 	"plate1":   {"name": "PLATE MAIL +1", "unk": "ARMOR", "slot": "A", "cls": "FPSLN", "price": 3000, "ac": 6},
 	"evilsw":   {"name": "EVIL SWORD +3", "unk": "SWORD", "slot": "W", "cls": "FSLN", "price": 8000, "dmg": "1d10+3", "hit": 3, "align": "E"},
 	"holymace": {"name": "HOLY MACE +2", "unk": "MACE", "slot": "W", "cls": "FPBSLN", "price": 6000, "dmg": "2d4+2", "hit": 2, "align": "G"},
 	"cusinart": {"name": "BLADE CUSINART", "unk": "SWORD", "slot": "W", "cls": "FSLN", "price": 15000, "dmg": "1d12+4", "hit": 3},
-	"amulet":   {"name": "WERDNA'S AMULET", "unk": "AMULET", "slot": "R", "cls": ALL_CLASSES, "price": 0, "quest": true},
+	"amulet":   {"name": "WERDNA'S AMULET", "unk": "AMULET", "slot": "Q", "cls": ALL_CLASSES, "price": 0, "quest": true},  # carried, never worn
+	# Slots: C a cross (priests and bishops), M an amulet (mages and bishops), R a ring (mages). A hood is a helm only thieves wear.
+	"cross":    {"name": "WOODEN CROSS", "unk": "CROSS", "slot": "C", "cls": "PB", "price": 60, "ac": 1},
+	"cross1":   {"name": "SILVER CROSS", "unk": "CROSS", "slot": "C", "cls": "PB", "price": 1500, "ac": 1, "dispel": 3},
+	"ward":     {"name": "AMULET OF WARDING", "unk": "AMULET", "slot": "M", "cls": "MB", "price": 80, "ac": 1},
+	"amufire":  {"name": "AMULET OF FIRE", "unk": "AMULET", "slot": "M", "cls": "MB", "price": 2500, "ac": 1, "spell": "MAHALITO", "ch": 8},
+	"ring":     {"name": "RING", "unk": "RING", "slot": "R", "cls": "M", "price": 100, "ac": 1},
+	"ringprot": {"name": "RING OF PROTECTION", "unk": "RING", "slot": "R", "cls": "M", "price": 2000, "ac": 2},
+	"hood":     {"name": "THIEF'S HOOD", "unk": "HOOD", "slot": "H", "cls": "T", "price": 40, "ac": 1},
+	"hood1":    {"name": "SHADOW HOOD", "unk": "HOOD", "slot": "H", "cls": "T", "price": 1800, "ac": 1, "pick": 2},
 }
 ## The picture of every item, under ITEM_ICON_DIR.
 const ITEM_ICON_DIR := "res://assets/images/"
@@ -206,8 +216,10 @@ const ITEM_ICONS := {
 	"chain": "Armor/ChainMail.png", "chain1": "Armor/ChainMail+1.png",
 	"pdios": "PotionsScrolls/PotionofDios.png", "plato": "PotionsScrolls/PotionofLatumodis.png",
 	"skatino": "PotionsScrolls/ScrollKatino.png", "sbadios": "PotionsScrolls/ScrollBadios.png",
-	"rodflame": "PotionsScrolls/RodofFlame.png", "ringheal": "PotionsScrolls/RingofHealing.png",
+	"rodflame": "PotionsScrolls/RodofFlame.png", "ringheal": "PotionsScrolls/BookofHealing.png",
 	"amulet": "PotionsScrolls/WerdnaAmulet.png",
+	"cross": "Armor/Cross.png", "cross1": "Armor/Cross.png", "ring": "Armor/Ring.png", "ringprot": "Armor/Ring+2.png",
+	"hood": "Armor/Hood.png", "hood1": "Armor/Hood+1.png",
 }
 ## Until it is identified, a magic or cursed item shows the picture of the plain one it looks like.
 const ITEM_LOOKS_LIKE := {
@@ -215,7 +227,16 @@ const ITEM_LOOKS_LIKE := {
 	"cusinart": "lsword", "mace1": "mace", "holymace": "mace", "staffmog": "staff", "leather1": "leather",
 	"leatherc": "leather", "chain1": "chain", "lshield1": "lshield", "helm1": "helm", "plate1": "plate",
 	"plato": "pdios", "sbadios": "skatino",  # an unknown potion or scroll looks like the common one
+	"cross1": "cross", "amufire": "ward", "hood1": "hood", "ringprot": "ring",
 }
+
+
+## Whether a class (by its letter) can use anything at all that goes in this slot.
+static func class_uses_slot(letter: String, slot: String) -> bool:
+	for d in ITEMS.values():
+		if d["slot"] == slot and String(d["cls"]).contains(letter):
+			return true
+	return false
 
 
 ## The path of an item's picture, or "" if it has none.
@@ -226,12 +247,13 @@ static func item_icon(id: String, known := true) -> String:
 
 ## The Broken Anvil's opening stock. -1 means he never runs out.
 const SHOP_START := {"dagger": -1, "staff": -1, "ssword": -1, "lsword": -1, "mace": -1, "flail": 3, "robes": -1,
-	"leather": -1, "chain": -1, "breast": 4, "plate": 2, "sshield": -1, "lshield": -1, "helm": 4, "pdios": 6, "plato": 3, "skatino": 2}
+	"leather": -1, "chain": -1, "breast": 4, "plate": 2, "sshield": -1, "lshield": -1, "helm": 4, "pdios": 6, "plato": 3, "skatino": 2,
+	"cross": -1, "ward": -1, "hood": -1, "ring": -1}
 const LOOT := [[],
 	["pdios", "pdios", "sbadios", "skatino", "ssword1", "sswordc", "leatherc", "helm", "lshield", "plato"],
-	["pdios", "plato", "lsword1", "mace1", "leather1", "chain1", "sswordc", "leatherc", "rodflame", "lshield1"],
-	["lsword1", "mace1", "chain1", "lshield1", "helm1", "rodflame", "staffmog", "ringheal", "evilsw", "holymace"],
-	["lsword2", "plate1", "helm1", "ringheal", "evilsw", "holymace", "cusinart", "rodflame"],
+	["pdios", "plato", "lsword1", "mace1", "leather1", "chain1", "sswordc", "leatherc", "rodflame", "lshield1", "cross1", "hood1"],
+	["lsword1", "mace1", "chain1", "lshield1", "helm1", "rodflame", "staffmog", "ringheal", "evilsw", "holymace", "cross1", "hood1", "amufire", "ringprot"],
+	["lsword2", "plate1", "helm1", "ringheal", "evilsw", "holymace", "cusinart", "rodflame", "ringprot"],
 ]
 const TRAPS := ["TRAPLESS CHEST", "POISON NEEDLE", "GAS BOMB", "CROSSBOW BOLT", "EXPLODING BOX", "STUNNER", "TELEPORTER"]
 

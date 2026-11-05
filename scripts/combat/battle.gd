@@ -96,7 +96,7 @@ func is_friendly() -> bool:
 
 func can_dispel(c: Character) -> bool:
 	var d = c.cdata().get("dispel")
-	return d != null and c.lvl >= d
+	return d != null and c.lvl + c.worn_bonus("dispel") >= d  # a Silver Cross dispels as if its wearer were higher level
 
 
 func combat_spells(c: Character) -> Array:
@@ -254,7 +254,7 @@ func _party_act(a: Dictionary) -> void:
 			var gp: Dictionary = groups[a["g"]]
 			var k := 0
 			for m in live(gp):
-				if Dice.chance(clampf(50 + 5 * c.lvl - 10 * Data.MONS[gp["id"]]["lv"], 5, 95)):
+				if Dice.chance(clampf(50 + 5 * (c.lvl + c.worn_bonus("dispel")) - 10 * Data.MONS[gp["id"]]["lv"], 5, 95)):
 					_kill(m, true)
 					k += 1
 			Game.say("%s DISPELLS! %s" % [c.name, ("%d %s DISSOLVE INTO THE ABYSS." % [k, gname(gp, k)]) if k > 0 else "NOTHING HAPPENS."], "mag" if k > 0 else "")

@@ -63,6 +63,9 @@ static func make_small_button(b: Button, fill: Color = C_BROWN, edge: Color = C_
 	for st in ["normal", "focus"]:
 		b.add_theme_stylebox_override(st, box(fill, edge, 4))
 	b.add_theme_stylebox_override("hover", box(fill.lightened(0.15), edge, 4))
+	# Every state keeps the same padding: the theme's pressed box has more, which squeezed out the last letter.
+	for st in ["pressed", "hover_pressed"]:
+		b.add_theme_stylebox_override(st, box(C_TORCH, C_TORCH, 4))
 	b.add_theme_stylebox_override("disabled", box(fill.darkened(0.45), edge.darkened(0.45), 4))  # the same size as the others
 
 

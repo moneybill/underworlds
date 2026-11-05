@@ -587,12 +587,62 @@ func run() -> int:
 
 
 ## The row that spreads a screen's buttons across the panel, and what is in one of its groups.
+const NEW_ITEMS_WITHOUT_PICTURES := ["ward", "amufire"]  # until the amulets are painted
+
+
+func _test_class_gear() -> void:
+	var slots := func(cls: String) -> Array:
+		var who := Character.new()
+		who.cls = cls
+		return TownScreens.gear_slots(who).map(func(g): return g[0])
+	check(slots.call("MAGE") == ["Weapon", "Amulet", "Armor", "Ring"], "mages wear an amulet and a ring")
+	check(slots.call("BISHOP") == ["Weapon", "Amulet", "Armor", "Cross"], "bishops an amulet and a cross")
+	check(slots.call("PRIEST") == ["Weapon", "Cross", "Armor", "Shield"], "priests a cross")
+	check(slots.call("THIEF") == ["Weapon", "Hood", "Armor", "Shield"], "thieves a hood")
+	check(slots.call("FIGHTER") == ["Weapon", "Helm", "Armor", "Shield"], "and fighters a helm and shield")
+	for cls in TownScreens.CLASS_GEAR:
+		var letter: String = Data.CLASSES[cls]["l"]
+		for g in TownScreens.CLASS_GEAR[cls]:
+			check(Data.class_uses_slot(letter, g[1]), "a %s has something to wear as %s" % [cls, g[0]])
+	check(Data.ITEMS["hood"]["slot"] == "H" and Data.ITEMS["hood"]["cls"] == "T", "only thieves wear hoods")
+	check(Data.SHOP_START.has("ring") and Data.ITEMS["ring"]["slot"] == "R", "the Broken Anvil sells a plain ring")
+	check(Data.ITEMS["ringprot"]["cls"] == "M" and Data.ITEMS.values().all(func(d): return d["slot"] != "R" or d["cls"] == "M"), "only mages wear rings")
+	check(Data.ITEMS["ringheal"]["name"] == "BOOK OF HEALING" and Data.ITEMS["ringheal"]["cls"] == Data.ALL_CLASSES and Data.ITEMS["ringheal"]["slot"] == "U", "anyone may carry the Book of Healing")
+	check(Data.ITEMS["amulet"]["slot"] == "Q", "Werdna's Amulet is carried, not worn")
+	var hero: Character = Game.roster[0]
+	var kept: Array = hero.items.duplicate(true)
+	hero.items = []
+	hero.add_item("cross1", true)
+	check(hero.worn_bonus("dispel") == 0, "a cross in the pack does nothing")
+	hero.items[0]["eq"] = true
+	check(hero.worn_bonus("dispel") == 3, "worn, a Silver Cross dispels as if three levels higher")
+	var base_level := LockScreens.thief_level(hero)
+	hero.items = []
+	hero.add_item("hood1", true)
+	hero.items[0]["eq"] = true
+	check(LockScreens.thief_level(hero) == base_level + 2, "a Shadow Hood picks locks as if two levels higher")
+	hero.items.assign(kept)
+
+
+func _test_small_buttons() -> void:
+	var b := Button.new()
+	b.text = "CAMP"
+	UiStyle.make_small_button(b)
+	var pads := []
+	for st in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+		var box: StyleBox = b.get_theme_stylebox(st)
+		pads.append(Vector4(box.content_margin_left, box.content_margin_right, box.content_margin_top, box.content_margin_bottom))
+	check(pads.all(func(p): return p == pads[0]), "a small button keeps its padding when pressed, so no letter drops off")
+	b.free()
+
+
 func _test_item_icons() -> void:
 	var missing := []
 	for id in Data.ITEMS:
 		var slot: String = Data.ITEMS[id]["slot"]
 		if Data.item_icon(id) == "":
 			missing.append(id)
+	missing = missing.filter(func(id): return not NEW_ITEMS_WITHOUT_PICTURES.has(id))
 	check(missing.is_empty(), "every item has a picture: %s" % [missing])
 	for id in Data.ITEM_ICONS:
 		check(ResourceLoader.exists(Data.item_icon(id)), "the picture for %s is there" % id)
@@ -1438,6 +1488,8 @@ func _test_town_map(g) -> void:
 	await _test_lockpicking()
 	_test_mercenaries()
 	_test_item_icons()
+	_test_small_buttons()
+	_test_class_gear()
 	print("wall torches")
 	var torch_lv: MazeLevel = g.levels[1]
 	var torch_all: Array = MazeWorld.torch_spots(torch_lv)
@@ -1971,6 +2023,16 @@ func _test_town_map(g) -> void:
 	var gear_icon: TextureRect = main._gear_grid.get_child(0).get_child(0).find_children("*", "TextureRect", true, false).filter(func(n): return n.get_parent().has_meta("gear"))[0]
 	check(gear_icon.texture.resource_path == Data.item_icon("lsword"), "with the plain long sword's picture left of its name")
 	check(main.town._gear_font("Weapon: STAFF OF MOGREF (BROKEN)") < main.town.GEAR_FONT, "a long name shrinks to fit")
+	check(not Data.class_uses_slot("M", "H") and not Data.class_uses_slot("M", "S") and Data.class_uses_slot("M", "A") and not Data.class_uses_slot("B", "S"), "mages can't use helms or shields, nor bishops shields")
+	var gear_cls: String = gear_hero.cls
+	gear_hero.cls = "MAGE"
+	main.rerender()
+	var mage_lines: Array = gear_lines.call()
+	check(mage_lines.slice(3, 7) == ["Weapon: SWORD?", "Amulet: NONE", "Armor: NONE", "Ring: NONE"], "a mage's card has an amulet and a ring instead of a helm and shield")
+	var mage_card: Control = main._gear_grid.get_child(0)
+	gear_hero.cls = gear_cls
+	main.rerender()
+	check(main._gear_grid.get_child(0).get_combined_minimum_size().y == mage_card.get_combined_minimum_size().y, "keeping the card the same height")
 	gear_hero.items = gear_keep
 	main.town.shop(gear_hero)
 	check(main.scr["title"] == "The Broken Anvil" and main._backdrop.texture == boltac_art, "the shop keeps the painting")
@@ -2776,6 +2838,11 @@ func _test_start_flow(g, roster_size: int) -> void:
 	var pack_here := ResourceLoader.exists(MazeView.CAMP_FIRE_SCENE)
 	check(camp_view.kind == "camp" and not camp_view.world.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "camp is a painting, so the 3D Maze stops drawing")
 	check((camp_view.camp_fire != null) == pack_here, "camp lights the fire if the fire pack is installed")
+	check(camp_view.camp_glow.visible and camp_view.camp_glow.mouse_filter == Control.MOUSE_FILTER_IGNORE, "an orange light flickers over the camp, letting clicks through")
+	var flickers := []
+	for flicker_i in 60:
+		flickers.append(CampGlow.flicker(flicker_i * 0.05))
+	check(flickers.min() >= CampGlow.LOW and flickers.max() <= 1.0 and flickers.max() - flickers.min() > 0.25, "and it flickers")
 	if pack_here:
 		check(camp_view.camp_fire.foot().distance_to(camp_view.view_point(MazeView.CAMP_FIRE_BASE)) < 1.0, "the fire stands on the painted logs")
 		var crackle: AudioStreamPlayer = camp_view.camp_fire.get_node("Crackle")
@@ -2789,6 +2856,7 @@ func _test_start_flow(g, roster_size: int) -> void:
 		check(is_equal_approx(camp_smoke.speed_scale, camp_main.speed_scale * 2.0), "and its smoke rises twice as fast")
 	camp_scene.mz.maze()
 	check(camp_view.camp_fire == null and camp_view.world.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "leaving camp puts the fire out and the Maze back")
+	check(not camp_view.camp_glow.visible, "and its light")
 	g.mode = "combat"
 	g.save_game()
 	await _venture_from_title()
