@@ -448,7 +448,7 @@ func _pick_item(i: int, c: Character, usable: Array) -> void:
 	var items := []
 	for it in usable:
 		var n: String = c.item_def(it)["spell"]
-		items.append({"label": c.item_name(it), "fn": _target_for.bind(n, func(t): _push(i, {"c": c, "type": "use", "item": it, "n": n, "t": t}), next_cmd.bind(i))})
+		items.append({"label": c.item_name(it), "icon": c.item_icon(it), "fn": _target_for.bind(n, func(t): _push(i, {"c": c, "type": "use", "item": it, "n": n, "t": t}), next_cmd.bind(i))})
 	ui.choose_list("Use which item?", "", items, next_cmd.bind(i))
 
 

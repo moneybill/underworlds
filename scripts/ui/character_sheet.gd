@@ -96,5 +96,6 @@ static func _text(node_name: String, bbcode: String) -> RichTextLabel:
 	t.fit_content = true
 	t.scroll_active = false
 	t.add_theme_font_size_override("normal_font_size", FONT)
+	t.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS  # item pictures shrink cleanly
 	t.text = bbcode
 	return t

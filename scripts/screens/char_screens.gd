@@ -89,7 +89,7 @@ func read_books(c: Character, back: Callable) -> void:
 func discard_item(c: Character, back: Callable) -> void:
 	var items := []
 	for it in c.items:
-		items.append({"label": c.item_name(it), "right": "EQUIPPED" if it["eq"] else "", "fn": _discard_one.bind(c, it, back)})
+		items.append({"label": c.item_name(it), "icon": c.item_icon(it), "right": "EQUIPPED" if it["eq"] else "", "fn": _discard_one.bind(c, it, back)})
 	ui.choose_list("Discard which item?", ui.flav("Discarded items are gone forever."), items, back)
 
 
@@ -109,7 +109,7 @@ func bishop_identify(c: Character, back: Callable) -> void:
 		return
 	var items := []
 	for it in unk:
-		items.append({"label": c.item_name(it), "fn": _identify_one.bind(c, it, back)})
+		items.append({"label": c.item_name(it), "icon": c.item_icon(it), "fn": _identify_one.bind(c, it, back)})
 	ui.choose_list("Identify which item?", "", items, back)
 
 
@@ -155,7 +155,7 @@ func equip_flow(c: Character, done: Callable, slots: Array) -> void:
 		return
 	var opts := []
 	for i in own.size():
-		opts.append({"k": str(i + 1), "label": c.item_name(own[i]), "right": "NOW" if own[i]["eq"] else "", "fn": _equip_one.bind(c, own[i], slot, next)})
+		opts.append({"k": str(i + 1), "label": c.item_name(own[i]), "icon": c.item_icon(own[i]), "right": "NOW" if own[i]["eq"] else "", "fn": _equip_one.bind(c, own[i], slot, next)})
 	opts.append({"k": "Enter", "label": "NONE", "fn": func(): _unequip(c, slot); next.call()})
 	ui.show_screen({"title": "Equip " + nm, "body": "%s: choose a %s, or none." % [ui.esc(c.name), nm], "col": true, "opts": opts})
 
@@ -208,7 +208,7 @@ func _trade_items(c: Character, o: Character, back: Callable) -> void:
 	var items := []
 	for it in c.items:
 		if not it["eq"]:
-			items.append({"label": c.item_name(it), "dis": o.items.size() >= 8, "fn": _give_item.bind(c, o, it, back)})
+			items.append({"label": c.item_name(it), "icon": c.item_icon(it), "dis": o.items.size() >= 8, "fn": _give_item.bind(c, o, it, back)})
 	ui.choose_list("Trade items", "Give an item to %s, or go back. Equipped items cannot be traded." % ui.esc(o.name), items, back)
 
 
@@ -240,7 +240,7 @@ func camp_use(c: Character, back: Callable) -> void:
 		return
 	var items := []
 	for it in list:
-		items.append({"label": c.item_name(it), "fn": _camp_target.bind(c, c.item_def(it)["spell"], it, back)})
+		items.append({"label": c.item_name(it), "icon": c.item_icon(it), "fn": _camp_target.bind(c, c.item_def(it)["spell"], it, back)})
 	ui.choose_list("Use an item", "", items, back)
 
 

@@ -465,10 +465,6 @@ func _maze(with_map: bool, with_signs := true) -> void:
 		return
 	world.sync_to_party()
 	draw_texture_rect(world.get_texture(), Rect2(0, 0, W, H), false)
-	if with_signs and lv.flag(p["x"], p["y"], "up"):
-		_txt("A LADDER LEADS UP", 240, 340, 22, TORCH)
-	if with_signs and lv.flag(p["x"], p["y"], "down"):
-		_txt("A LADDER LEADS DOWN", 240, 340, 22, TORCH)
 	if with_map and Game.show_map:
 		_map()
 

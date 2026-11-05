@@ -587,6 +587,28 @@ func run() -> int:
 
 
 ## The row that spreads a screen's buttons across the panel, and what is in one of its groups.
+func _test_item_icons() -> void:
+	var missing := []
+	for id in Data.ITEMS:
+		var slot: String = Data.ITEMS[id]["slot"]
+		if Data.item_icon(id) == "":
+			missing.append(id)
+	check(missing.is_empty(), "every item has a picture: %s" % [missing])
+	for id in Data.ITEM_ICONS:
+		check(ResourceLoader.exists(Data.item_icon(id)), "the picture for %s is there" % id)
+	check(Data.item_icon("lsword2", false) == Data.item_icon("lsword") and Data.item_icon("lsword2") != Data.item_icon("lsword"), "an unknown LONG SWORD +2 looks like a plain long sword until identified")
+	check(Data.item_icon("plato", false) == Data.item_icon("pdios") and Data.item_icon("plato") != Data.item_icon("pdios"), "an unknown potion looks like a Potion of DIOS until identified")
+	var hero: Character = Game.party_chars()[0] if not Game.party_chars().is_empty() else Game.roster[0]
+	var hero_items: Array = hero.items.duplicate(true)
+	hero.items = []
+	hero.add_item("evilsw", true)
+	check(main.item_lines(hero).contains("[img=") and main.item_lines(hero).contains("EvilSword"), "the character sheet shows the picture beside the name")
+	hero.items.assign(hero_items)
+	main.choose_list("Pick", "", [{"label": "LONG SWORD", "icon": Data.item_icon("lsword"), "fn": func(): pass}, {"label": "CHAIN MAIL", "icon": "", "fn": func(): pass}], func(): pass)
+	var shown: Array = main.find_children("*", "Button", true, false).filter(func(b): return not b.is_queued_for_deletion() and (b.text.contains("LONG SWORD") or b.text.contains("CHAIN MAIL")))
+	check(shown.size() == 2 and shown.all(func(b): return b.icon != null), "a list gives each item its picture, or an empty space to keep the names in line")
+
+
 func _test_mercenaries() -> void:
 	print("mercenaries")
 	var g = get_node("/root/Game")
@@ -1215,7 +1237,26 @@ func _test_town_map(g) -> void:
 	main.clear_log()
 	main.yesno("Ladder going up", "Climb it?", main.mz.maze, main.mz.maze)
 	check(not main._table.visible and main.scr["party_grid"], "a question in the Maze keeps the party's cards up")
+	var ladder_from: Dictionary = g.pos.duplicate()
+	var icon_lv: MazeLevel = g.level()
+	var icon_at := Vector2i(-1, -1)
+	var icon_way := ""
+	for iy in icon_lv.cells.size():
+		for ix in icon_lv.cells[iy].size():
+			for way in ["up", "down"]:
+				if icon_at.x < 0 and icon_lv.flag(ix, iy, way):
+					icon_at = Vector2i(ix, iy)
+					icon_way = way
+	g.pos = {"x": icon_at.x, "y": icon_at.y, "z": ladder_from["z"], "d": 0}
 	main.mz.maze()
+	check(main._tools.get_child_count() == 3 and main._tools.get_child(2).tooltip_text == "CLIMB " + icon_way.to_upper(), "on a ladder, a ladder icon stands next to Notes")
+	main._tools.get_child(2).pressed.emit()
+	check(main.scr["title"] == "Ladder going " + icon_way, "and asks whether to climb")
+	main.scr["opts"].filter(func(o): return o["label"] == "NO")[0]["fn"].call()
+	check(g.pos["z"] == ladder_from["z"] and main._tools.get_child_count() == 3, "No leaves the party on the ladder, icon and all")
+	g.pos = ladder_from
+	main.mz.maze()
+	check(main._tools.get_children().filter(func(n): return not n.is_queued_for_deletion()).size() == 2, "off the ladder the icon is gone")
 	main.chars.training()
 	check(main._tools.get_child_count() == 0 or main._tools.get_children().all(func(n): return n.is_queued_for_deletion()), "other screens have no icons")
 	main.mz.maze()
@@ -1396,6 +1437,7 @@ func _test_town_map(g) -> void:
 	check(burning_ok, "only braziers near the party burn, and they stay silent")
 	await _test_lockpicking()
 	_test_mercenaries()
+	_test_item_icons()
 	print("wall torches")
 	var torch_lv: MazeLevel = g.levels[1]
 	var torch_all: Array = MazeWorld.torch_spots(torch_lv)
@@ -1906,6 +1948,8 @@ func _test_town_map(g) -> void:
 		for l in cell.get_child(0).get_children():
 			if l is Label:
 				out.append(l.text)
+			elif l is HBoxContainer and l.has_meta("gear"):
+				out.append(TownScreens.gear_text(l))
 		return out
 	var gear_seen: Array = gear_lines.call()
 	check(gear_seen.size() == 8 and gear_seen[0] == gear_hero.name, "a card has the name, class, hit points, four lines of gear and gold")
@@ -1924,6 +1968,8 @@ func _test_town_map(g) -> void:
 	gear_hero.items[-1]["eq"] = true
 	main.rerender()
 	check(gear_lines.call()[3] == "Weapon: SWORD?", "an unidentified weapon keeps its secret")
+	var gear_icon: TextureRect = main._gear_grid.get_child(0).get_child(0).find_children("*", "TextureRect", true, false).filter(func(n): return n.get_parent().has_meta("gear"))[0]
+	check(gear_icon.texture.resource_path == Data.item_icon("lsword"), "with the plain long sword's picture left of its name")
 	check(main.town._gear_font("Weapon: STAFF OF MOGREF (BROKEN)") < main.town.GEAR_FONT, "a long name shrinks to fit")
 	gear_hero.items = gear_keep
 	main.town.shop(gear_hero)
@@ -2683,6 +2729,17 @@ func _test_start_flow(g, roster_size: int) -> void:
 	sw_scene.mz.camp()
 	var leave_button: Button = sw_scene._under_view
 	MazeView.instant_fades = false
+	sw_scene.mz.maze()
+	var make_camp: Callable = sw_scene.scr["opts"].filter(func(o): return o["label"] == "CAMP")[0]["fn"]
+	make_camp.call()
+	check(sw_scene.view.is_fading() and g.mode == "maze", "making camp fades the window to black first")
+	make_camp.call()
+	await get_tree().create_timer(MazeView.FADE_TIME + 0.1).timeout
+	check(g.mode == "camp" and sw_scene.view._black.modulate.a < 1.0, "then fades up on the camp")
+	if sw_scene.view.is_fading():
+		await sw_scene.view.fade_done
+	check(sw_scene.view._black.modulate.a == 0.0, "until it is clear")
+	leave_button = sw_scene._under_view
 	leave_button.pressed.emit()
 	check(sw_scene.mz._camp_pick == null, "leaving camp forgets who was selected")
 	check(sw_scene.view.is_fading() and g.mode == "camp", "and fades the window to black first")

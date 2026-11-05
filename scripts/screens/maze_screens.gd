@@ -7,6 +7,7 @@ const CAMP_BUTTON_SIZE := Vector2(190, 48)
 const CAMP_CARD_BUTTONS := 30.0  # the row on a card for INSPECT and SWAP
 const INSPECT_ICON := "res://assets/images/inspect.svg"
 const NOTES_ICON := "res://assets/images/notes.svg"
+const LADDER_ICON := "res://assets/images/ladder.svg"
 
 var ui
 var _door_states := {}  # door -> how often its lock has been studied
@@ -120,6 +121,13 @@ func _camp_swap() -> void:
 	camp()
 
 
+## The window fades to black and up again on the camp.
+func _make_camp() -> void:
+	ui.view.fade_through_black(func():
+		if Game.mode == "maze":  # unless something else happened meanwhile
+			camp())
+
+
 ## The window fades to black and back into the Maze.
 func _leave_camp() -> void:
 	_camp_pick = null
@@ -134,6 +142,7 @@ func maze() -> void:
 	Game.save_game()
 	var p: Dictionary = Game.pos
 	var dark = Game.level().flag(p["x"], p["y"], "dark")
+	var ladder := _ladder_here()
 	var fx := ""
 	if Game.light > 0:
 		fx += ("LOMILWA" if Game.light > 999 else "MILWA") + " ACTIVE · "
@@ -145,10 +154,29 @@ func maze() -> void:
 		"view": "maze", "pad": true, "widget": ui.fight.explore_grid(), "party_grid": true, "opts_bottom": true,
 		"moves": {"W": forward, "A": turn.bind(3), "D": turn.bind(1), "X": turn.bind(2)},
 		"opts": [
-			{"k": "C", "label": "CAMP", "small": true, "at": "right", "fn": camp},
+			{"k": "C", "label": "CAMP", "small": true, "at": "right", "fn": _make_camp},
 			{"k": "I", "label": "INSPECT AREA", "in_widget": true, "tool": INSPECT_ICON, "fn": inspect_area},
 			{"k": "M", "label": "MAP OFF" if Game.show_map else "MAP NOTES", "in_widget": true, "tool": NOTES_ICON, "fn": func(): Game.show_map = not Game.show_map; maze()},
+			{"k": "K", "label": "CLIMB UP" if ladder == "up" else "CLIMB DOWN", "in_widget": true, "tool": LADDER_ICON, "hide": ladder == "", "fn": _ask_climb},
 		]})
+
+
+## "up" or "down" when the party stands on a ladder, or "".
+func _ladder_here() -> String:
+	var p: Dictionary = Game.pos
+	for way in ["up", "down"]:
+		if Game.level().flag(p["x"], p["y"], way):
+			return way
+	return ""
+
+
+## Asks whether to climb the ladder the party stands on.
+func _ask_climb() -> void:
+	if _ladder_here() == "up":
+		ui.yesno("Ladder going up", "This ladder leads back to the Castle. Climb it?" if Game.pos["z"] == 1 else "Climb the ladder up?", _go_up, maze)
+	else:
+		ui.yesno("Ladder going down", "Climb down the ladder, deeper into the Maze?", _go_down, maze)
+	ui.view.show_view("maze")
 
 
 func _pick_door(c: Character) -> void:
@@ -245,13 +273,8 @@ func _after_step() -> void:
 		if randf() < 0.035 + p["z"] * 0.006:
 			ui.fight.encounter(false, false)
 			return
-	if lv.flag(x, y, "up"):
-		ui.yesno("Ladder going up", "This ladder leads back to the Castle. Climb it?" if p["z"] == 1 else "Climb the ladder up?", _go_up, maze)
-		ui.view.show_view("maze")
-		return
-	if lv.flag(x, y, "down"):
-		ui.yesno("Ladder going down", "Climb down the ladder, deeper into the Maze?", _go_down, maze)
-		ui.view.show_view("maze")
+	if _ladder_here() != "":
+		_ask_climb()
 		return
 	maze()
 

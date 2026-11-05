@@ -191,6 +191,39 @@ const ITEMS := {
 	"cusinart": {"name": "BLADE CUSINART", "unk": "SWORD", "slot": "W", "cls": "FSLN", "price": 15000, "dmg": "1d12+4", "hit": 3},
 	"amulet":   {"name": "WERDNA'S AMULET", "unk": "AMULET", "slot": "R", "cls": ALL_CLASSES, "price": 0, "quest": true},
 }
+## The picture of every item, under ITEM_ICON_DIR.
+const ITEM_ICON_DIR := "res://assets/images/"
+const ITEM_ICONS := {
+	"dagger": "Weapons/Dagger.png", "staff": "Weapons/Staff.png", "ssword": "Weapons/ShortSword.png",
+	"lsword": "Weapons/Longsword.png", "mace": "Weapons/AnoitedMace.png", "flail": "Weapons/AnoitedFlail.png",
+	"ssword1": "Weapons/SwortSword+1.png", "lsword1": "Weapons/Longsword+1.png", "mace1": "Weapons/Mace+1.png",
+	"sswordc": "Weapons/CursedShortSword.png", "staffmog": "Weapons/Staff+1.png", "lsword2": "Weapons/Longsword+2.png",
+	"evilsw": "Weapons/EvilSword+3.png", "holymace": "Weapons/Mace+2.png", "cusinart": "Weapons/BladeCuisinart.png",
+	"robes": "Armor/Robes.png", "leather": "Armor/LeatherArmor.png", "breast": "Armor/BreastPlate.png",
+	"plate": "Armor/PlateMail.png", "sshield": "Armor/SmallShield.png", "lshield": "Armor/LargeShield.png",
+	"helm": "Armor/Helm.png", "leather1": "Armor/LeatherArmor+1.png", "leatherc": "Armor/LeatherArmor.png",
+	"lshield1": "Armor/LargeShield+1.png", "helm1": "Armor/Helm+1.png", "plate1": "Armor/PlateMail+1.png",
+	"chain": "Armor/ChainMail.png", "chain1": "Armor/ChainMail+1.png",
+	"pdios": "PotionsScrolls/PotionofDios.png", "plato": "PotionsScrolls/PotionofLatumodis.png",
+	"skatino": "PotionsScrolls/ScrollKatino.png", "sbadios": "PotionsScrolls/ScrollBadios.png",
+	"rodflame": "PotionsScrolls/RodofFlame.png", "ringheal": "PotionsScrolls/RingofHealing.png",
+	"amulet": "PotionsScrolls/WerdnaAmulet.png",
+}
+## Until it is identified, a magic or cursed item shows the picture of the plain one it looks like.
+const ITEM_LOOKS_LIKE := {
+	"ssword1": "ssword", "sswordc": "ssword", "lsword1": "lsword", "lsword2": "lsword", "evilsw": "lsword",
+	"cusinart": "lsword", "mace1": "mace", "holymace": "mace", "staffmog": "staff", "leather1": "leather",
+	"leatherc": "leather", "chain1": "chain", "lshield1": "lshield", "helm1": "helm", "plate1": "plate",
+	"plato": "pdios", "sbadios": "skatino",  # an unknown potion or scroll looks like the common one
+}
+
+
+## The path of an item's picture, or "" if it has none.
+static func item_icon(id: String, known := true) -> String:
+	var shown: String = id if known else ITEM_LOOKS_LIKE.get(id, id)
+	return ITEM_ICON_DIR + ITEM_ICONS[shown] if ITEM_ICONS.has(shown) else ""
+
+
 ## The Broken Anvil's opening stock. -1 means he never runs out.
 const SHOP_START := {"dagger": -1, "staff": -1, "ssword": -1, "lsword": -1, "mace": -1, "flail": 3, "robes": -1,
 	"leather": -1, "chain": -1, "breast": 4, "plate": 2, "sshield": -1, "lshield": -1, "helm": 4, "pdios": 6, "plato": 3, "skatino": 2}

@@ -8,6 +8,8 @@ const BOLTAC_IMAGE := "res://assets/images/boltac.webp"
 const GEAR_PLACES := [TAVERN_IMAGE, BOLTAC_IMAGE, INN_IMAGE]  # the buildings that show the party with its equipment
 const GEAR_SLOTS := [["Weapon", "W"], ["Helm", "H"], ["Armor", "A"], ["Shield", "S"]]  # in Data.ITEMS' slot letters
 const CARD_ALPHA := 0.72  # the painting shows through the cards
+const GEAR_ICON := 18.0  # an item's picture on a card, left of its name
+const GEAR_ICON_GAP := 4
 const GEAR_FONT := 15
 const GEAR_FONT_MIN := 11
 const MAX_PARTY := 6
@@ -234,16 +236,46 @@ func add_gear_lines(v: VBoxContainer, c: Character) -> void:
 	for gear in GEAR_SLOTS:
 		var it: Variant = c.equipped(gear[1])
 		var text := "%s: %s" % [gear[0], c.item_name(it) if it != null else "NONE"]
-		var line := PartyCards.label(text, UiStyle.C_INK if it != null else UiStyle.C_DIM)
-		line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		line.add_theme_font_size_override("font_size", _gear_font(text))
+		var pic: String = c.item_icon(it) if it != null else ""
+		var size := _gear_font(text, pic != "")
+		var line := HBoxContainer.new()
+		line.set_meta("gear", true)
+		line.add_theme_constant_override("separation", GEAR_ICON_GAP)
+		var color: Color = UiStyle.C_INK if it != null else UiStyle.C_DIM
+		var slot := PartyCards.label("%s:" % gear[0], color)
+		slot.add_theme_font_size_override("font_size", size)
+		slot.clip_text = false
+		line.add_child(slot)
+		if pic != "":
+			var icon := TextureRect.new()
+			icon.texture = load(pic)
+			icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			icon.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+			icon.custom_minimum_size = Vector2.ONE * GEAR_ICON
+			line.add_child(icon)
+		var item_line := PartyCards.label(c.item_name(it) if it != null else "NONE", color)
+		item_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		item_line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		item_line.add_theme_font_size_override("font_size", size)
+		line.add_child(item_line)
 		v.add_child(line)
 
 
+## A gear line as one string, as add_gear_lines shows it: "Weapon: LONG SWORD".
+static func gear_text(line: HBoxContainer) -> String:
+	var words := []
+	for part in line.get_children():
+		if part is Label:
+			words.append(part.text)
+	return " ".join(words)
+
+
 ## The largest size at which this line fits a card, so a long item name still reads in full.
-func _gear_font(text: String) -> int:
+func _gear_font(text: String, with_icon := false) -> int:
 	var sz := GEAR_FONT
-	while sz > GEAR_FONT_MIN and ui.mono.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x > ui.gear_line_room():
+	var room: float = ui.gear_line_room() - (GEAR_ICON + GEAR_ICON_GAP * 2 if with_icon else GEAR_ICON_GAP)
+	while sz > GEAR_FONT_MIN and ui.mono.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x > room:
 		sz -= 1
 	return sz
 
@@ -285,7 +317,7 @@ func buy(c: Character, page: int) -> void:
 		var d: Dictionary = Data.ITEMS[id]
 		var ok := String(d["cls"]).contains(c.cdata()["l"])
 		var left: int = Game.stock[id]
-		items.append({"label": ("" if ok else "#") + d["name"], "right": "%d GP%s" % [d["price"], " (%d)" % left if left > 0 else ""],
+		items.append({"label": ("" if ok else "#") + d["name"], "icon": Data.item_icon(id), "right": "%d GP%s" % [d["price"], " (%d)" % left if left > 0 else ""],
 			"dis": c.gold < d["price"] or c.items.size() >= 8, "fn": _buy_one.bind(c, id, page, ok)})
 	var pager := []
 	if page > 0:
@@ -328,7 +360,7 @@ func sell(c: Character) -> void:
 	for it in c.items:
 		var d: Dictionary = c.item_def(it)
 		var sellable: bool = it["known"] and not it["cursed"] and not d.get("quest", false)
-		items.append({"label": c.item_name(it), "right": ("%d GP" % _sell_price(c, it) if sellable else "NO SALE") + (" *" if it["eq"] else ""),
+		items.append({"label": c.item_name(it), "icon": c.item_icon(it), "right": ("%d GP" % _sell_price(c, it) if sellable else "NO SALE") + (" *" if it["eq"] else ""),
 			"dis": not sellable, "fn": _sell_one.bind(c, it)})
 	ui.choose_list("Sell", ui.flav("Boltac pays half of what he charges. He will not buy cursed or unidentified goods."), items, shop.bind(c), [], null, _sell_for)
 
@@ -367,7 +399,7 @@ func fee_service(c: Character, kind: String) -> void:
 	var items := []
 	for it in list:
 		var fee := maxi(10, int(c.item_def(it)["price"]) / 2)
-		items.append({"label": c.item_name(it), "right": "%d GP" % fee, "dis": c.gold < fee, "fn": _do_fee.bind(c, it, kind, fee)})
+		items.append({"label": c.item_name(it), "icon": c.item_icon(it), "right": "%d GP" % fee, "dis": c.gold < fee, "fn": _do_fee.bind(c, it, kind, fee)})
 	ui.choose_list("Uncurse" if kind == "U" else "Identify", "", items, shop.bind(c))
 
 

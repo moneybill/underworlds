@@ -4,6 +4,9 @@ extends Control
 
 const KIND_COLORS := {"hit": "d6563f", "mag": "8bace6", "gold": "e3a33f", "ok": "93c07e", "": "9c947f"}
 const PORTRAIT_SIZE := 300.0
+const ITEM_ICON_SIZE := 26  # an item's picture on a button
+const ITEM_ICON_LINE := 20  # and in a line of text
+const BLANK_ICON := "res://assets/images/blank_icon.png"
 const UNDER_VIEW_DROP := 3.7  # a big button under the picture sits this much lower (5 pixels on a 1920 wide screen)
 const BACKDROP_COLUMN := 540.0  # width of the text column over a painted backdrop, clear of its center
 const GEAR_COLUMN := 600.0  # width of the party's equipment over a painting
@@ -549,6 +552,7 @@ func show_screen(s: Dictionary) -> void:
 			b.disabled = o.get("dis", false)
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.pressed.connect(_run.bind(o))
+			_add_item_icon(b, o)
 			if o.has("big"):
 				b.custom_minimum_size = o["big"]
 				b.alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -669,7 +673,7 @@ func _show_tools(opts: Array) -> void:
 		_tools.remove_child(n)
 		n.queue_free()
 	for o in opts:
-		if not o.has("tool"):
+		if not o.has("tool") or o.get("hide", false):
 			continue
 		var b := Button.new()
 		b.icon = load(o["tool"])
@@ -716,7 +720,27 @@ func _gear_button(o: Dictionary) -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	b.disabled = o.get("dis", false)
 	b.pressed.connect(_run.bind(o))
+	_add_item_icon(b, o)
 	return b
+
+
+## An option with "icon" shows that picture left of its text. "" keeps the room empty, so names in a list line up.
+func _add_item_icon(b: Button, o: Dictionary) -> void:
+	if not o.has("icon"):
+		return
+	b.icon = load(o["icon"]) if o["icon"] != "" else blank_icon()
+	b.add_theme_constant_override("icon_max_width", ITEM_ICON_SIZE)
+	b.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+
+
+static var _blank_icon: ImageTexture = null
+
+
+## A clear square, standing in for an item without a picture.
+static func blank_icon() -> ImageTexture:
+	if _blank_icon == null:
+		_blank_icon = ImageTexture.create_from_image(Image.create(64, 64, false, Image.FORMAT_RGBA8))
+	return _blank_icon
 
 
 ## Three groups: left, center and right. The outer two share the spare room, so the center stays centered.
@@ -1047,15 +1071,18 @@ func _close_confirm() -> void:
 		_confirm_box = null
 
 
-## items: [{label, fn, dis, right}] become numbered options 1..9.
+## items: [{label, fn, dis, right, icon}] become numbered options 1..9. If any has an icon, the rest keep its room.
 ## With a pager, or in a building that shows the party's cards, the page buttons and the way out share a smaller row under the list.
 ## The way out says EXIT only when it returns to town, and BACK otherwise.
 ## With switch_member, clicking a living member's card calls it with that character, and the cards say so.
 func choose_list(title: String, body: String, items: Array, back: Callable, extra: Array = [], pager: Variant = null, switch_member := Callable()) -> void:
 	var opts := []
+	var icons := items.any(func(it): return it.get("icon", "") != "")
 	for i in items.size():
 		var it: Dictionary = items[i]
 		opts.append({"k": str(i + 1), "label": it["label"], "fn": it["fn"], "dis": it.get("dis", false), "right": it.get("right", "")})
+		if icons:
+			opts[-1]["icon"] = it.get("icon", "")
 	opts.append_array(extra)
 	var exit_opt := {"k": "L", "label": "EXIT" if back == town.castle else "BACK", "fn": back}
 	if pager != null:
@@ -1208,8 +1235,13 @@ func item_lines(c: Character) -> String:
 	var t := ""
 	if c.items.is_empty():
 		t += "[color=#9c947f]NO ITEMS[/color]"
+	var pictures := c.items.any(func(it): return c.item_icon(it) != "")
 	for i in c.items.size():
 		var it: Dictionary = c.items[i]
 		var sym := ("*" if it["eq"] else "") + ("" if c.can_use(it) else "#") + ("" if it["known"] else "?") + ("-" if it["eq"] and it["cursed"] else "")
-		t += "%d)%s %s\n" % [i + 1, sym if sym != "" else " ", esc(c.item_name(it))]
+		var pic := c.item_icon(it)
+		if pic == "" and pictures:
+			pic = BLANK_ICON  # keeps the names in line
+		var icon := "[img=%dx%d]%s[/img] " % [ITEM_ICON_LINE, ITEM_ICON_LINE, pic] if pic != "" else ""
+		t += "%d)%s %s%s\n" % [i + 1, sym if sym != "" else " ", icon, esc(c.item_name(it))]
 	return t

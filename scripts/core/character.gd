@@ -125,6 +125,11 @@ func item_name(i: Dictionary) -> String:
 	return n + (" (BROKEN)" if i.get("broken", false) else "")
 
 
+## The picture shown left of item_name, or "" for none. It keeps an unknown item's secret too.
+func item_icon(i: Dictionary) -> String:
+	return Data.item_icon(i["id"], i.get("known", false))
+
+
 func can_use(i: Dictionary) -> bool:
 	return String(item_def(i)["cls"]).contains(cdata()["l"])
 
