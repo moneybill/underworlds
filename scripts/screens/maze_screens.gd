@@ -10,10 +10,12 @@ func _init(root) -> void:
 
 
 func enter_maze() -> void:
+	ui.place_image = ""
 	for c in Game.party_chars():
 		c.loc = "MAZE"
 		c.cac = 0
 		c.reset_sp()
+		c.maze_trips += 1
 	Game.pos = {"x": 0, "y": 0, "z": 1, "d": 0}
 	Game.light = 0
 	Game.maporfic = 0
@@ -34,7 +36,7 @@ func camp() -> void:
 		opts.append({"k": str(i + 1), "label": ps[i].name, "fn": ui.chars.inspect.bind(ps[i], "camp", camp)})
 	opts.append({"k": "R", "label": "REORDER", "fn": reorder.bind([])})
 	opts.append({"k": "E", "label": "EQUIP", "fn": _equip_all.bind(0)})
-	opts.append({"k": "L", "label": "EXIT CAMP", "fn": maze})
+	opts.append({"k": "L", "label": "BACK", "fn": maze})
 	ui.show_screen({"title": "Camp", "where": "Maze · Level %d" % Game.pos["z"], "view": "camp", "opts": opts,
 		"body": ui.flav("Guards are posted and the fire is lit. No monster will trouble you while you stay in camp.")})
 
@@ -82,7 +84,7 @@ func maze() -> void:
 			{"k": "S", "label": "STATUS", "fn": _status},
 			{"k": "I", "label": "INSPECT AREA", "fn": inspect_area},
 			{"k": "M", "label": "MAP OFF" if Game.show_map else "MAP NOTES", "fn": func(): Game.show_map = not Game.show_map; maze()},
-			{"k": "Q", "label": "QUIT", "fn": func(): ui.yesno("Quit the expedition?", "The party stays where it is, marked OUT. Restart it later from Utilities at the Edge of Town. Light and shield spells are forgotten.", _quit, maze)},
+			{"k": "Q", "label": "QUIT", "fn": func(): ui.yesno("Quit the game?", "Your party stays where it is and picks up from here next time.", _quit, maze)},
 		]})
 
 
@@ -92,13 +94,8 @@ func _status() -> void:
 
 
 func _quit() -> void:
-	Game.outs.append({"ids": Game.party.duplicate(), "pos": Game.pos.duplicate()})
-	for c in Game.party_chars():
-		c.loc = "OUT"
-	Game.party.clear()
-	Game.mode = "castle"
 	Game.save_game()
-	ui.town.castle()
+	ui.get_tree().quit()
 
 
 func turn(k: int) -> void:
@@ -231,5 +228,5 @@ func wiped() -> void:
 	Game.party.clear()
 	Game.mode = "castle"
 	Game.save_game()
-	ui.say("Your party is wiped out", "The whole party lies dead in the Maze. Their bodies stay where they fell, marked OUT.\n\n" +
+	ui.say("Your party is wiped out", "The whole party lies dead in the Maze. Their bodies stay where they fell.\n\n" +
 		ui.flav("Send a rescue party to that spot and use INSPECT AREA to carry them home to the Temple."), ui.town.castle, "Castle")

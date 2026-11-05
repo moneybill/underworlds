@@ -4,6 +4,9 @@ extends RefCounted
 
 const DEAD_STATES := ["DEAD", "ASHES", "LOST"]
 const PORTRAIT_FILE := "res://assets/images/portraits/%s.webp"
+const SPELL_FAVORITES := ["MAGE", "PRIEST", "BISHOP"]  # their bios name a favorite spell, not a weapon
+const BARE_HANDS := "BARE HANDS"
+const MONTHS := ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
 var id := 0
 var name := ""
@@ -16,7 +19,7 @@ var lvl := 1
 var xp := 0
 var age := 18 * 52  # in weeks
 var status := "OK"  # OK, POISON, ASLEEP, PARALYZED, DEAD, ASHES, LOST
-var loc := "CASTLE"  # CASTLE, MAZE, OUT
+var loc := "CASTLE"  # CASTLE, MAZE, or OUT for the dead of a wiped party, where they fell
 var gold := 0
 var hp := 1
 var maxhp := 1
@@ -25,6 +28,14 @@ var items: Array = []  # each: {id, eq, known, cursed, bad, broken, ch}
 var spells: Array = []
 var sp := {"M": [0, 0, 0, 0, 0, 0, 0], "P": [0, 0, 0, 0, 0, 0, 0]}
 var honor := false
+# for the bio
+var last_level_date := ""  # as the player's calendar read
+var weapon_damage := {}  # total damage done, by what the weapon is called
+var spell_damage := {}  # and by spell
+var kills := {}  # by monster id
+var maze_trips := 0
+var gold_found := 0
+var items_found := 0
 # combat-only
 var cac := 0
 var parry := false
@@ -32,6 +43,14 @@ var parry := false
 
 func his() -> String:
 	return "HER" if sex == "FEMALE" else "HIS"
+
+
+func he_word() -> String:
+	return "She" if sex == "FEMALE" else "He"
+
+
+func his_word() -> String:
+	return "Her" if sex == "FEMALE" else "His"
 
 
 func him() -> String:
@@ -205,9 +224,61 @@ func spend(sn: String) -> void:
 
 
 # ---------- growth ----------
+## "November 4, 2026"
+static func date_today() -> String:
+	var now := Time.get_date_dict_from_system()
+	return "%s %d, %d" % [MONTHS[now["month"] - 1], now["day"], now["year"]]
+
+
+## The key with the highest count, or "" for an empty tally. Ties go to the first alphabetically.
+static func _top(tally: Dictionary) -> String:
+	var best := ""
+	var keys := tally.keys()
+	keys.sort()
+	for k in keys:
+		if best == "" or tally[k] > tally[best]:
+			best = k
+	return best
+
+
+static func add_to(tally: Dictionary, key: String, amount: int) -> void:
+	tally[key] = int(tally.get(key, 0)) + amount
+
+
+static func _counted(n: int, thing: String) -> String:
+	return "%d %s%s" % [n, thing, "" if n == 1 else "s"]
+
+
+static func _monster_plural(id: String) -> String:
+	var M: Dictionary = Data.MONS[id]
+	if M.has("pl"):
+		return M["pl"]
+	return M["n"] if String(M["n"]).ends_with("S") else M["n"] + "S"
+
+
+## A short account of this character's career.
+func bio() -> String:
+	var kind := align.to_lower()
+	var t := "%s is %s %s level %d %s." % [name, "an" if "aeiou".contains(kind.substr(0, 1)) else "a", kind, lvl, cls.to_lower()]
+	t += " %s last leveled up on %s." % [name, last_level_date] if last_level_date != "" else " %s has yet to level up." % name
+	var casts_best := SPELL_FAVORITES.has(cls)
+	var favorite := _top(spell_damage if casts_best else weapon_damage)
+	if favorite != "":
+		t += " %s favorite %s is %s%s." % [his_word(), "spell" if casts_best else "weapon", "" if casts_best or favorite == BARE_HANDS else "the ", favorite.capitalize()]
+	var slain := 0
+	for id in kills:
+		slain += int(kills[id])
+	t += " %s has ventured into the maze %s and has slain %s." % [he_word(), _counted(maze_trips, "time"), _counted(slain, "creature")]
+	if slain > 0:
+		t += " %s is an expert at killing %s." % [he_word(), _monster_plural(_top(kills)).capitalize()]
+	t += " %s has found %d gold and %s." % [he_word(), gold_found, _counted(items_found, "item")]
+	return t
+
+
 func level_up() -> Array:
 	var out := []
 	lvl += 1
+	last_level_date = date_today()
 	var gain := maxi(1, Dice.roll("1d%d" % cdata()["hd"]) + vit_bonus(stats["vit"]))
 	maxhp += gain
 	hp += gain
@@ -248,7 +319,16 @@ func change_class(new_cls: String) -> void:
 func to_dict() -> Dictionary:
 	return {"id": id, "name": name, "race": race, "sex": sex, "portrait": portrait, "align": align, "cls": cls, "lvl": lvl, "xp": xp, "age": age,
 		"status": status, "loc": loc, "gold": gold, "hp": hp, "maxhp": maxhp, "stats": stats, "items": items,
-		"spells": spells, "sp": sp, "honor": honor}
+		"spells": spells, "sp": sp, "honor": honor, "last_level_date": last_level_date, "weapon_damage": weapon_damage, "spell_damage": spell_damage,
+		"kills": kills, "maze_trips": maze_trips, "gold_found": gold_found, "items_found": items_found}
+
+
+## Saved numbers come back as floats.
+static func _tally(saved: Dictionary) -> Dictionary:
+	var out := {}
+	for k in saved:
+		out[String(k)] = int(saved[k])
+	return out
 
 
 static func from_dict(d: Dictionary) -> Character:
@@ -270,6 +350,13 @@ static func from_dict(d: Dictionary) -> Character:
 		for v in d["sp"][school]:
 			c.sp[school].append(int(v))
 	c.honor = bool(d.get("honor", false))
+	c.last_level_date = String(d.get("last_level_date", ""))  # older saves have none of these
+	c.weapon_damage = _tally(d.get("weapon_damage", {}))
+	c.spell_damage = _tally(d.get("spell_damage", {}))
+	c.kills = _tally(d.get("kills", {}))
+	c.maze_trips = int(d.get("maze_trips", 0))
+	c.gold_found = int(d.get("gold_found", 0))
+	c.items_found = int(d.get("items_found", 0))
 	c.sex = String(d.get("sex", "MALE"))
 	c.portrait = String(d.get("portrait", ""))
 	if c.portrait_path() == "":  # older saves have none

@@ -386,7 +386,7 @@ func chest_menu() -> void:
 			{"k": "I", "label": "INSPECT", "fn": func(): who.call("Who inspects it?", _inspect)},
 			{"k": "C", "label": "CALFO", "fn": func(): who.call("Who casts CALFO?", _calfo)},
 			{"k": "D", "label": "DISARM", "fn": func(): who.call("Who disarms it?", _disarm)},
-			{"k": "L", "label": "EXIT", "fn": func(): Game.say("YOU LEAVE THE CHEST ALONE."); chest = {}; ui.mz.maze()},
+			{"k": "L", "label": "BACK", "fn": func(): Game.say("YOU LEAVE THE CHEST ALONE."); chest = {}; ui.mz.maze()},
 		]})
 
 
@@ -428,7 +428,7 @@ func _calfo(c: Character) -> void:
 func _disarm(c: Character) -> void:
 	ui.show_screen({"title": "Disarm", "view": "chest",
 		"body": "%s studies the lock. Type the name of the trap. Spelling counts.\n[color=#9c947f]%s[/color]" % [ui.esc(c.name), " · ".join(Data.TRAPS)],
-		"input": {"ph": "TRAP NAME", "max": 20, "fn": func(v): _try_disarm(c, v)}, "opts": [{"k": "Escape", "label": "EXIT", "fn": chest_menu}]})
+		"input": {"ph": "TRAP NAME", "max": 20, "fn": func(v): _try_disarm(c, v)}, "opts": [{"k": "Escape", "label": "BACK", "fn": chest_menu}]})
 
 
 func _try_disarm(c: Character, v: String) -> void:
@@ -527,6 +527,7 @@ func _loot() -> void:
 				break
 		if who != null:
 			who.add_item(c["item"], false)
+			who.items_found += 1
 			Game.say("%s FOUND A %s?" % [who.name, Data.ITEMS[c["item"]]["unk"]], "gold")
 		else:
 			Game.say("YOUR PACKS ARE FULL. THE TREASURE STAYS BEHIND.")

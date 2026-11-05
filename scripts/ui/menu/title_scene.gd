@@ -4,10 +4,9 @@ extends Control
 
 const GAME_SCENE := "res://scenes/main.tscn"
 const ART := "res://assets/images/title.webp"
-const BOTTOM_MARGIN := 36
+const BOTTOM_LINE := 54.0  # the tap message and Venture Onwards are centered this far above the bottom
 const PANEL_WIDTH := 360.0
 const HEADING_FONT := 28
-const VENTURE_TOP := 0.82  # of the screen's height, just under the foot of the torch in the painting
 const VENTURE_SIZE := Vector2(300, 48)
 const OPTIONS_MARGIN := 24.0
 
@@ -50,11 +49,7 @@ func _ready() -> void:
 	add_child(nav)
 	venture_button = _plain_button("Venture Onwards", _venture, nav)
 	venture_button.custom_minimum_size = VENTURE_SIZE
-	venture_button.anchor_left = 0.5
-	venture_button.anchor_right = 0.5
-	venture_button.anchor_top = VENTURE_TOP
-	venture_button.anchor_bottom = VENTURE_TOP
-	venture_button.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_pin_bottom(venture_button)
 	options_button = _plain_button("Options", _show_options.bind(true), nav)
 	UiStyle.make_small_button(options_button)
 	options_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -110,15 +105,15 @@ func _plain_button(text: String, handler: Callable, parent: Control) -> Button:
 	return b
 
 
-## Bottom centre, growing up and out so it stays there whatever its size.
+## Bottom centre, growing out from BOTTOM_LINE so it stays centered there whatever its size.
 func _pin_bottom(c: Control) -> void:
 	c.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	c.offset_left = 0
 	c.offset_right = 0
-	c.offset_top = -BOTTOM_MARGIN
-	c.offset_bottom = -BOTTOM_MARGIN
+	c.offset_top = -BOTTOM_LINE
+	c.offset_bottom = -BOTTOM_LINE
 	c.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	c.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	c.grow_vertical = Control.GROW_DIRECTION_BOTH
 
 
 func _process(delta: float) -> void:

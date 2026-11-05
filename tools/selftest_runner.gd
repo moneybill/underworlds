@@ -64,19 +64,19 @@ func run() -> int:
 	main.scr["widget"].get_node("HUMAN").pressed.emit()
 	main.scr["side"].find_child("Choose", true, false).pressed.emit()
 	press("G")
-	check(main.scr["title"].begins_with("NEWBIE"), "bonus point screen")
+	check(main.scr["title"].begins_with("NEWBIE"), "attribute rolling screen")
 	check(not main.has_method("_input"), "the game takes no keyboard commands")
-	for i in 30:
-		main.scr["widget"].get_child(i % 6 * 4 + 3).pressed.emit()  # each row: name, value, -, +
-	check(main.scr["body"].contains("BONUS POINTS: [color=#e3a33f]0[/color]"), "the + buttons spend every bonus point")
-	main.scr["widget"].get_child(3).pressed.emit()
-	main.scr["widget"].get_child(2).pressed.emit()
-	check(main.scr["body"].contains("BONUS POINTS: [color=#e3a33f]1[/color]"), "the - buttons give a point back")
-	press("Q")
+	_test_attribute_rolls()
+	press("L")
+	check(not main.dice_tray().visible, "the dice leave with the screen")
 	main.chars.create_name()
 	main._entry.text = "buttoned"
-	_ok_button().pressed.emit()
-	check(main.scr["title"] == "BUTTONED: choose a race", "the OK button submits typed text")
+	check(_row_labels("left") == ["SELECT"] and _row_labels("right") == ["BACK"], "the name screen has SELECT, and BACK at the right")
+	check(_row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "BACK is brown")
+	check(main.scr["opts"][0]["fn"] == main.chars.training, "and goes back to the Training Grounds")
+	_row_button("left", 0).pressed.emit()
+	check(main.scr["title"] == "BUTTONED: choose a race", "the SELECT button submits typed text")
+	check(main.scr["body"] == "Select a race to see bonus stats:", "the race screen asks for a race")
 	main.scr["widget"].get_node("Leave").pressed.emit()
 
 	# --- town ---
@@ -148,24 +148,15 @@ func run() -> int:
 	press("Enter")
 	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible and main.town_map.visible, "leaving the temple returns to the map")
-	main.town.edge_of_town()
-	check(not main._backdrop.visible and main._view_box.visible and main._header.visible, "other screens keep the normal layout")
+	main.show_screen({"title": "Unpainted", "view": "edge"})
+	check(not main._backdrop.visible and main._view_box.visible and main._header.visible, "screens without a painting keep the normal layout")
 	main.town.tavern()
 	var tavern_art: Texture2D = main._backdrop.texture
-	check(not main._gear.visible and not main._table.visible, "the tavern opens on its clear painting")
-	var menu_button := func(label: String) -> Button:
-		for b in main._opts_flow.get_children():
-			if not b.is_queued_for_deletion() and b.text == label:
-				return b
-		return null
-	check(main._gear.get_theme_stylebox("panel").bg_color.a < 0.5 and main._panel.get_theme_stylebox("panel").bg_color.a < 0.88, "the painting shows through the panels")
-	menu_button.call(g.party_chars()[0].name).pressed.emit()
-	check(main._gear.visible and not main._table.visible, "clicking a member's name brings up the cards")
-	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").bg_color.a < 1.0, "the painting shows through the cards")
+	check(main._gear.visible and not main._table.visible, "the tavern shows the party as a grid instead of the table")
+	check(is_equal_approx(main._gear.get_theme_stylebox("panel").bg_color.a, main.GEAR_PANEL_ALPHA) and is_equal_approx(main._panel.get_theme_stylebox("panel").bg_color.a, main.BACKDROP_PANEL_ALPHA), "the painting shows through the panels")
+	check(is_equal_approx(main._gear_grid.get_child(0).get_theme_stylebox("panel").bg_color.a, TownScreens.CARD_ALPHA), "the painting shows through the cards")
 	check(main._gear_grid.get_child_count() == PartyCards.COLUMNS * PartyCards.ROWS, "the tavern's grid has every party slot")
 	var tavern_button := func(label: String) -> Button:
-		if main._gear_row == null:
-			return null
 		for b in main._gear_row.find_children("*", "Button", true, false):
 			if b.text == label:
 				return b
@@ -176,16 +167,10 @@ func run() -> int:
 	var tavern_first: Character = g.party_chars()[0]
 	var tavern_few: Array = tavern_party.slice(0, 3)
 	g.party.assign(tavern_few)
-	main.town._selected = null
 	main.town.tavern()
-	var few_names: Array = g.party_chars().map(func(c): return c.name)
-	check(tavern_labels.call() == few_names + ["ADD", "DIVVY GOLD"], "the clear painting has a small menu of names, ADD and DIVVY GOLD")
-	check(menu_button.call("ADD").get_theme_stylebox("normal").bg_color == main.PAGER_FILL and menu_button.call("ADD").get_theme_font_size("font_size") == main.PAGER_FONT, "the small menu is small and brown")
-	check(tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "with nobody selected, DROP and INSPECT stay hidden")
-	check(main._exit_row.visible and main._exit_row.get_child(main._exit_row.get_child_count() - 1).text == "EXIT", "EXIT has its place on the clear painting too")
-	main.town.select_member(tavern_first)
-	check(tavern_labels.call().is_empty(), "with the cards up, the left panel lists nothing")
-	check(tavern_button.call("ADD") != null and tavern_button.call("DROP") != null and tavern_button.call("INSPECT") != null and tavern_button.call("DIVVY GOLD") != null, "the buttons sit under the cards")
+	check(tavern_labels.call().is_empty(), "the left panel no longer lists party members or buttons")
+	check(tavern_button.call("ADD") != null and tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "with nobody selected, DROP and INSPECT stay hidden")
+	check(tavern_button.call("DIVVY GOLD") != null, "DIVVY GOLD sits under the cards")
 	var exit_button := func() -> Button:
 		return main._exit_row.get_child(main._exit_row.get_child_count() - 1)
 	check(main._exit_row.visible and exit_button.call().text == "EXIT" and tavern_button.call("EXIT") == null, "EXIT sits in the left panel, not under the cards")
@@ -195,9 +180,10 @@ func run() -> int:
 	check(hint_label.text == "Click a party member to select them." and hint_label.get_theme_font_size("font_size") == 18, "the hint tops the cards, four sizes smaller")
 	check(exit_button.call().get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL and exit_button.call().get_theme_font_size("font_size") < 22, "the main screen's EXIT is small and red")
 	check(main._exit_row.get_parent() == main._body.get_parent() and main._exit_row.get_index() > main._body.get_index() and main._exit_row.get_index() < main._log.get_index(), "EXIT sits under the text, above the log")
-	main._gear_grid.get_child(1).get_child(1).pressed.emit()
-	check(main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card selects that member")
-	main._gear_grid.get_child(0).get_child(1).pressed.emit()
+	var tavern_cell: Control = main._gear_grid.get_child(0)
+	var tavern_hit: Button = tavern_cell.get_child(1)
+	tavern_hit.pressed.emit()
+	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card selects that member")
 	var tavern_row: Control = main._gear_row
 	check(tavern_button.call("ADD").get_parent() == tavern_row.get_child(0) and tavern_button.call("ADD").get_index() == 0 and tavern_button.call("DROP").get_index() == 1, "DROP sits right of ADD")
 	check(tavern_button.call("DIVVY GOLD").get_parent() == tavern_row.get_child(1), "DIVVY GOLD sits in the center")
@@ -206,33 +192,26 @@ func run() -> int:
 		check(brown.get_theme_stylebox("normal").bg_color == main.PAGER_FILL and brown.get_theme_font_size("font_size") == main.PAGER_FONT, "the Tavern's %s is small and brown" % brown_label)
 	check(tavern_button.call("INSPECT").get_parent() == tavern_row.get_child(2), "INSPECT sits at the far right")
 	tavern_button.call("INSPECT").pressed.emit()
-	check(main.scr["title"] == "Inspect" and main.scr["body"].contains(tavern_first.name), "INSPECT opens the selected member")
+	check(main.scr["title"] == "Inspect" and main._sheet.visible and main._sheet.find_child("Stats", true, false).text.contains(tavern_first.name), "INSPECT opens the selected member's sheet")
 	press("L")
 	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "the selection survives inspecting")
 	tavern_button.call("DROP").pressed.emit()
 	check(not g.party.has(tavern_first.id) and g.party.size() == tavern_few.size() - 1, "DROP takes the selected member out of the party")
-	check(not main._gear.visible and tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "dropping the selected member clears the cards")
+	check(tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "removing clears the selection")
 	g.party.assign(tavern_party)
 	main.town.tavern()
-	check(g.party.size() == main.town.MAX_PARTY and menu_button.call("ADD") == null, "a full party hides ADD")
+	check(g.party.size() == main.town.MAX_PARTY and tavern_button.call("ADD") == null, "a full party hides ADD")
 	g.party.assign(tavern_few)
-	main.town.select_member(tavern_first)
-	exit_button.call().pressed.emit()
-	check(main.scr["title"] == "Gilgamesh's Tavern" and not main._gear.visible, "EXIT from the cards returns to the clear painting")
-	exit_button.call().pressed.emit()
-	check(main.scr["title"] == "Castle", "and EXIT again leaves")
-	main.town.tavern()
 	main.town.select_member(tavern_first)
 	main.town.castle()
 	main.town.tavern()
-	check(not main._gear.visible, "leaving the tavern clears the selection")
+	check(tavern_button.call("DROP") == null, "leaving the tavern clears the selection")
 	main.town.boltac()
 	check(main.scr["body"].contains("cedar shavings"), "Boltac's has its description")
-	check(not main._gear.visible and not main._table.visible, "Boltac's opens on its clear painting")
-	check(tavern_labels.call() == few_names and exit_button.call().text == "EXIT", "Boltac's small menu lists the names, and has EXIT in the left panel")
-	check(tavern_button.call("BUY") == null and tavern_button.call("POOL GOLD") == null, "nobody selected at Boltac's, no shop buttons")
-	menu_button.call(few_names[1]).pressed.emit()
+	check(tavern_labels.call().is_empty() and exit_button.call().text == "EXIT", "Boltac's lists no names and has EXIT in the left panel")
 	check(not main.scr["body"].contains("Click a party member") and main._gear_grid.get_parent().get_child(0).text == "Click a party member to select them.", "Boltac's hint tops the cards too")
+	check(tavern_button.call("BUY") == null and tavern_button.call("POOL GOLD") == null, "nobody selected at Boltac's, no shop buttons")
+	main._gear_grid.get_child(1).get_child(1).pressed.emit()
 	check(main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card at Boltac's selects that member")
 	check(tavern_labels.call().is_empty() and tavern_button.call("BUY") != null and tavern_button.call("SELL") != null and tavern_button.call("POOL GOLD") != null, "selecting at Boltac's offers the shop under the cards")
 	for shop_label in ["BUY", "SELL", "POOL GOLD"]:
@@ -259,6 +238,8 @@ func run() -> int:
 	var switch_to: Character = g.party_chars()[2]
 	main.town.buy(switch_from, 1)
 	check(main._gear_grid.get_child(2).get_child_count() == 2, "another member's card can be clicked while buying")
+	check(main._gear_grid.get_parent().get_child(0).text == TownScreens.SELECT_HINT, "the hint stays up while buying")
+	check(main.scr["opts"][-1]["label"] == "BACK" and main._pager_row.get_child(-1).text == "BACK", "Buy leaves by BACK")
 	main._gear_grid.get_child(2).get_child(1).pressed.emit()
 	check(main.town._selected == switch_to and main.scr["title"] == "Buy" and main._gear_grid.get_child(2).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card switches the buyer and stays on Buy")
 	check(main._pager_row.get_child(0).text == "PREVIOUS", "switching the buyer keeps the page")
@@ -270,6 +251,8 @@ func run() -> int:
 	check(main._gear_grid.get_child(2).get_child_count() == 1 and main._gear_grid.get_child(1).get_child_count() == 2, "nor while selling")
 	switch_to.status = switch_status
 	main.town.sell(switch_from)
+	check(main._gear_grid.get_parent().get_child(0).text == TownScreens.SELECT_HINT, "and while selling")
+	check(main.scr["opts"][-1]["label"] == "BACK" and main._pager_row.get_child(-1).text == "BACK", "Sell leaves by BACK")
 	main._gear_grid.get_child(2).get_child(1).pressed.emit()
 	check(main.town._selected == switch_to and main.scr["title"] == "Sell", "clicking a card switches the seller and stays on Sell")
 	main.town.shop(switch_from)
@@ -278,20 +261,20 @@ func run() -> int:
 		return main._pager_row.get_children().filter(func(n): return n is Button).map(func(n): return n.text)
 	check(main.scr["body"].contains("# Not usable by this character.") and not main.scr["body"].contains(" GOLD"), "the Buy note drops the gold")
 	check(main.scr["body"].contains("[font_size=18]"), "the Buy note is four sizes smaller")
-	check(pager_labels.call() == ["NEXT", "EXIT"], "the first page has NEXT and EXIT on one row")
+	check(pager_labels.call() == ["NEXT", "BACK"], "the first page has NEXT and BACK on one row")
 	var pager_spacer: Control = main._pager_row.get_parent().get_child(main._pager_row.get_index() - 1)
 	check(pager_spacer.custom_minimum_size.y + main._opts_col.get_theme_constant("separation") == main.PAGER_DROP, "the row sits 15 lower")
 	var pager_exit: Button = main._pager_row.get_child(main._pager_row.get_child_count() - 1)
-	check(pager_exit.get_index() == main._pager_row.get_child_count() - 1 and main._pager_row.get_child(pager_exit.get_index() - 1).size_flags_horizontal == Control.SIZE_EXPAND_FILL, "EXIT is on the right of the row")
+	check(pager_exit.get_index() == main._pager_row.get_child_count() - 1 and main._pager_row.get_child(pager_exit.get_index() - 1).size_flags_horizontal == Control.SIZE_EXPAND_FILL, "BACK is on the right of the row")
 	check(main._pager_row.get_child(0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "the page buttons are brown")
-	check(pager_exit.get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL, "EXIT has its own color")
+	check(pager_exit.get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "BACK is brown too")
 	check(main._pager_row.get_child(0).get_theme_font_size("font_size") < 22, "the page buttons are smaller")
 	main.town.sell(g.party_chars()[1])
-	check(pager_labels.call() == ["EXIT"] and main._pager_row.get_child(main._pager_row.get_child_count() - 1).get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL, "Sell has the small red EXIT under its list")
+	check(pager_labels.call() == ["BACK"] and main._pager_row.get_child(main._pager_row.get_child_count() - 1).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "Sell has the small brown BACK under its list")
 	press("L")
 	press("B")
 	press("F")
-	check(pager_labels.call().slice(0, 2) == ["PREVIOUS", "NEXT"] or pager_labels.call() == ["PREVIOUS", "EXIT"], "later pages offer PREVIOUS first")
+	check(pager_labels.call().slice(0, 2) == ["PREVIOUS", "NEXT"] or pager_labels.call() == ["PREVIOUS", "BACK"], "later pages offer PREVIOUS first")
 	press("B")
 	press("L")
 	check(main.scr["title"] == "Boltac's Trading Post" and tavern_button.call("BUY") != null, "leaving Buy returns to the shop with the member still selected")
@@ -316,7 +299,85 @@ func run() -> int:
 	var inspect_keep: String = inspect_hero.portrait
 	inspect_hero.portrait = "female_1"
 	main.chars.inspect(inspect_hero, "tavern", main.town.tavern)
-	check(not main._gear.visible and main._portrait.visible, "inspecting gives the grid's place to the portrait")
+	check(not main._gear.visible and not main._portrait.visible and main._sheet.visible, "inspecting gives the grid's place to the character sheet")
+	var sheet_part := func(part: String) -> Node:
+		return main._sheet.find_child(part, true, false)
+	check(sheet_part.call("Portrait").texture == load(inspect_hero.portrait_path()), "the sheet has the portrait")
+	var sheet_stats: String = sheet_part.call("Stats").text
+	check(sheet_stats.contains("STRENGTH") and sheet_stats.contains("GOLD") and sheet_stats.contains("HITS") and sheet_stats.contains("STATUS"), "the sheet has the statistics")
+	check(sheet_part.call("Items").text == main.item_lines(inspect_hero), "the sheet lists the equipment")
+	var sheet_buttons := func(section: String) -> Array:
+		return sheet_part.call(section).find_children("*", "Button", true, false).map(func(b): return b.text)
+	check(sheet_buttons.call("SpellBook") == ["READ"], "READ sits by the Spell Book heading")
+	check(sheet_buttons.call("Equipment").slice(0, 3) == ["EQUIP", "DISCARD", "TRADE"], "EQUIP, DISCARD and TRADE sit by the Equipment heading")
+	check(_row_labels("left") == ["POOL GOLD"] and _row_labels("right") == ["BACK"], "the bio's window has POOL GOLD, and BACK at the right")
+	var left_buttons: Array = [_row_button("left", 0), _row_button("right", 0)]
+	check(left_buttons.all(func(b): return b.get_theme_stylebox("normal").bg_color == main.PAGER_FILL and b.get_theme_font_size("font_size") == main.PAGER_FONT), "and they are small and brown")
+	check(main._sheet.find_children("*", "Button", true, false).all(func(b): return b.text != "EXIT" and b.text != "BACK" and b.text != "POOL GOLD"), "and neither is on the sheet")
+	var sheet_kids: Array = sheet_part.call("Equipment").get_parent().get_children()
+	check(sheet_kids.find(sheet_part.call("Equipment")) == sheet_kids.find(sheet_part.call("Spells")) + 1 and sheet_part.call("Spells").fit_content, "Equipment follows straight after the spells, however few")
+	check(main._body.visible and main._body.text == main.esc(inspect_hero.bio()), "the left panel has the character's bio")
+	var bio_hero: Character = g.make_char("BIOGRAPH", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER", "FEMALE", "female_4")
+	g.roster.erase(bio_hero)
+	check(bio_hero.bio() == "BIOGRAPH is a good level 1 fighter. BIOGRAPH has yet to level up. She has ventured into the maze 0 times and has slain 0 creatures. She has found 0 gold and 0 items.", "a new character's bio is short")
+	bio_hero.align = "EVIL"
+	check(bio_hero.bio().begins_with("BIOGRAPH is an evil level 1 fighter."), "an evil character is AN evil one")
+	bio_hero.level_up()
+	check(bio_hero.last_level_date == Character.date_today() and bio_hero.bio().contains("BIOGRAPH last leveled up on %s." % Character.date_today()), "the bio has the date of the last level up")
+	Character.add_to(bio_hero.weapon_damage, "LONG SWORD", 30)
+	Character.add_to(bio_hero.weapon_damage, "DAGGER", 10)
+	Character.add_to(bio_hero.spell_damage, "HALITO", 90)
+	check(bio_hero.bio().contains("Her favorite weapon is the Long Sword."), "a fighter's favorite is the weapon that did the most damage")
+	bio_hero.cls = "MAGE"
+	check(bio_hero.bio().contains("Her favorite spell is Halito."), "a mage's favorite is a spell")
+	bio_hero.cls = "FIGHTER"
+	bio_hero.weapon_damage = {Character.BARE_HANDS: 5}
+	check(bio_hero.bio().contains("Her favorite weapon is Bare Hands."), "bare hands can be a favorite")
+	Character.add_to(bio_hero.kills, "ORC", 2)
+	Character.add_to(bio_hero.kills, "RAT", 5)
+	bio_hero.maze_trips = 1
+	bio_hero.gold_found = 120
+	bio_hero.items_found = 1
+	check(bio_hero.bio().ends_with("She has ventured into the maze 1 time and has slain 7 creatures. She is an expert at killing %s. She has found 120 gold and 1 item." % String(Data.MONS["RAT"].get("pl", Data.MONS["RAT"]["n"] + "S")).capitalize()), "the bio counts the maze, kills, gold and items")
+	bio_hero.sex = "MALE"
+	check(bio_hero.bio().contains("His favorite weapon") and bio_hero.bio().contains("He has ventured") and bio_hero.bio().contains("He is an expert") and bio_hero.bio().contains("He has found"), "a man's bio says He and His")
+	bio_hero.sex = "FEMALE"
+	var bio_saved := Character.from_dict(JSON.parse_string(JSON.stringify(bio_hero.to_dict())))
+	check(bio_saved.bio() == bio_hero.bio(), "the bio survives a save")
+	var bio_old: Dictionary = bio_hero.to_dict()
+	for bio_key in ["last_level_date", "weapon_damage", "spell_damage", "kills", "maze_trips", "gold_found", "items_found"]:
+		bio_old.erase(bio_key)
+	check(Character.from_dict(bio_old).bio().contains("0 creatures"), "older saves load with an empty bio")
+	var bio_gold: int = inspect_hero.gold_found
+	g.split_gold(g.living().size() * 3)
+	check(inspect_hero.gold_found == bio_gold + 3 or not inspect_hero.is_alive(), "shares of found gold count as found")
+	var bio_battle := Battle.new()
+	bio_battle.groups.append(Battle.mk_group("ORC", 1))
+	bio_battle.groups[0]["ms"][0]["hp"] = 1
+	bio_hero.items = []
+	bio_hero.status = "OK"
+	bio_hero.kills = {}
+	bio_hero.weapon_damage = {}
+	bio_battle._acts = [{"c": bio_hero, "type": "fight", "g": 0}]
+	while bio_hero.kills.is_empty() and bio_battle.groups[0]["ms"][0]["hp"] > 0:
+		bio_battle._acts = [{"c": bio_hero, "type": "fight", "g": 0}]
+		bio_battle.step()
+	check(bio_hero.kills.get("ORC", 0) == 1 and bio_hero.weapon_damage.get(Character.BARE_HANDS, 0) > 0, "landing the killing blow counts the kill and the damage")
+	bio_battle.groups[0]["ms"][0]["dead"] = false
+	bio_battle.groups[0]["ms"][0]["hp"] = 1
+	bio_battle._hurt(bio_battle.groups[0]["ms"][0], 5)
+	check(bio_hero.kills["ORC"] == 1, "a kill with nobody acting goes to no one")
+	var sheet_keep: Array = inspect_hero.spells
+	inspect_hero.spells = ["KATINO", "HALITO", "DIOS"]
+	main.chars.inspect(inspect_hero, "tavern", main.town.tavern)
+	var sheet_spells: String = sheet_part.call("Spells").text
+	check(sheet_spells.contains("HALITO") and sheet_spells.contains("KATINO") and sheet_spells.contains("DIOS"), "the sheet lists the known spells")
+	inspect_hero.spells = []
+	main.chars.inspect(inspect_hero, "tavern", main.town.tavern)
+	check(sheet_part.call("Spells").text.contains("NO SPELLS"), "and says when there are none")
+	inspect_hero.spells = sheet_keep
+	main.town.tavern()
+	check(not main._sheet.visible and main._gear.visible, "the sheet closes with the screen")
 	inspect_hero.portrait = inspect_keep
 	main.chars.inspect(inspect_hero, "tavern", main.town.tavern)
 	press("R")
@@ -326,8 +387,6 @@ func run() -> int:
 	check(main.scr["title"] == "Gilgamesh's Tavern", "inspect returns to the tavern")
 	check(main._gear.visible, "the grid comes back after inspecting")
 	press("L")
-	check(main.scr["title"] == "Gilgamesh's Tavern" and not main._gear.visible, "EXIT closes the cards first")
-	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving the tavern clears its painting")
 	check(not main._gear.visible, "leaving the tavern clears the grid")
 	party[5].status = "OK"
@@ -336,9 +395,6 @@ func run() -> int:
 	main.town.inn_rooms(party[0])
 	press("1")
 	check(party[0].lvl >= 2, "inn level-up")
-	main.town.edge_of_town()
-	press("U")
-	press("L")
 
 	# --- the Maze ---
 	print("the Maze")
@@ -461,6 +517,145 @@ func run() -> int:
 
 	print("SELFTEST DONE, failures: %d" % failures)
 	return failures
+
+
+## The row that spreads a screen's buttons across the panel, and what is in one of its groups.
+func _row_group(group: String) -> Node:
+	for row in main._opts_col.get_children():
+		if not row.is_queued_for_deletion() and row.has_node(group):
+			return row.get_node(group)
+	return null
+
+
+func _row_labels(group: String) -> Array:
+	return _row_group(group).get_children().map(func(b): return b.text)
+
+
+func _row_button(group: String, i: int) -> Button:
+	return _row_group(group).get_child(i)
+
+
+## The buttons a screen shows, in order.
+func _shown_labels() -> Array:
+	return main.scr["opts"].filter(func(o): return not o.get("hide", false)).map(func(o): return o["label"])
+
+
+func _roll_attributes() -> void:
+	while _shown_labels().has("ROLL"):
+		press("R")
+		main.dice_tray().finish_now()
+
+
+## A cell of the roll screen's grid: 0 the name, 1 rolled, 2 bonus, 3 total.
+func _stat_cell(row: int, column: int) -> String:
+	var grid: GridContainer = main.scr["widget"]
+	return grid.get_child((row + 1) * grid.columns + column).text
+
+
+func _test_attribute_rolls() -> void:
+	var tray: DiceTray = main.dice_tray()
+	var score_of := func(row: int) -> String:
+		return _stat_cell(row, 3)
+	var rolled_of := func(row: int) -> String:
+		return _stat_cell(row, 1)
+	check(tray.visible and tray.dice.size() == 3, "three dice wait beside the stats panel")
+	check(tray.get_global_rect().position.x >= main._panel.get_global_rect().end.x, "to its right")
+	check(_shown_labels() == ["ROLL", "BACK"], "the first choice is to roll")
+	check(score_of.call(0) == "-" and main.scr["body"].contains("RE-ROLL POINTS: [color=#e3a33f]6[/color]"), "nothing is rolled yet, and there are 6 re-roll points")
+	var roll_button: Button = _row_button("center", 0)
+	check(roll_button.text == "ROLL" and roll_button.get_theme_stylebox("normal").bg_color == UiStyle.C_STONE2, "ROLL is a blue button in the middle of the row")
+	check(roll_button.custom_minimum_size == main.chars.ROLL_BUTTON_SIZE and roll_button.get_theme_font_size("font_size") > 22, "and a larger one")
+	check(_row_labels("right") == ["BACK"] and _row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "BACK is brown at the right")
+	var head_row: Array = main.scr["widget"].get_children().slice(1, 4).map(func(n): return n.text)
+	check(head_row == ["Rolled", "Bonus", "Total"], "the columns are Rolled, Bonus and Total")
+	check(_stat_cell(0, 2) == "+1", "each row shows the race's bonus")
+	check(_stat_cell(0, 1) == "-" and _stat_cell(0, 3) == "-", "with nothing rolled yet")
+	check(main.scr["widget"].get_children().slice(1).all(func(n): return n.custom_minimum_size.x == main.chars.STAT_NUMBER_WIDTH or n is Button or n is Control and n.custom_minimum_size.x == main.chars.STAT_NAME_WIDTH), "the columns have fixed widths, so a value can't move them")
+	check(main._body.custom_minimum_size.y == main.chars.STAT_BODY_HEIGHT and main.scr["row_height"] == main.chars.ROLL_BUTTON_SIZE.y, "and the text and buttons have fixed heights")
+	press("R")
+	check(main.scr["opts"].filter(func(o): return o["label"] == "ROLL")[0]["dis"], "ROLL waits for the dice to land")
+	check(main.scr["opts"].filter(func(o): return o["label"] == "BACK")[0]["dis"], "and so does BACK")
+	check(score_of.call(0) == "-", "the score waits for the dice too")
+	tray.finish_now()
+	check(int(rolled_of.call(0)) >= 3 and int(rolled_of.call(0)) <= 18 and score_of.call(1) == "-", "the first attribute gets a roll of 3-18, the rest wait")
+	check(int(score_of.call(0)) == int(rolled_of.call(0)) + 1, "the total is the roll plus the bonus")
+	_roll_attributes()
+	check(_shown_labels() == ["RE-ROLL ALL (2)", "NEXT", "BACK"], "once all are rolled the choices are re-roll and next")
+	check(_row_labels("left") == ["RE-ROLL ALL (2)", "NEXT"] and _row_labels("center").is_empty() and _row_labels("right") == ["BACK"], "with BACK still at the right")
+	for row in Data.STATS.size():
+		check(int(rolled_of.call(row)) >= 3 and int(rolled_of.call(row)) <= 18, "%s is rolled" % Data.STATS[row])
+		var one_button: Button = main.scr["widget"].get_node("Reroll_" + Data.STATS[row])
+		check(one_button.text == "RE-ROLL (1)" and one_button.get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "with a brown RE-ROLL (1) beside it")
+	var one_before: String = rolled_of.call(1)
+	var one_other: String = rolled_of.call(2)
+	main.scr["widget"].get_node("Reroll_iq").pressed.emit()
+	check(main.scr["body"].contains("RE-ROLL POINTS: [color=#e3a33f]5[/color]"), "re-rolling one attribute costs 1 point")
+	check(main.scr["widget"].get_node("Reroll_str").disabled and main.scr["opts"].filter(func(o): return o["label"] == "NEXT")[0]["dis"] and main.scr["opts"].filter(func(o): return o["label"] == "BACK")[0]["dis"], "everything waits for the dice")
+	check(rolled_of.call(1) == one_before, "and the old score stays until they land")
+	tray.finish_now()
+	check(int(rolled_of.call(1)) >= 3 and int(score_of.call(1)) == int(rolled_of.call(1)) + 1 and rolled_of.call(2) == one_other, "only that attribute changes, and its total follows")
+	check(_shown_labels().has("NEXT") and not _shown_labels().has("ROLL"), "and the screen stays on the final choices")
+	var last_b := {"nm": "T", "race": "HUMAN", "al": "GOOD", "st": {}, "rolls": {}, "rolled": 6, "rolling": false, "reroll": 0}
+	for last_stat in Data.STATS:
+		last_b["st"][last_stat] = 18
+	main.chars._draw_stats(last_b)
+	check(main.scr["widget"].get_node("Reroll_str").disabled, "a re-roll of one needs a point to pay for it")
+	main.chars.create_stats("NEWBIE", "HUMAN", "GOOD")
+	_roll_attributes()
+	press("A")
+	check(main.scr["body"].contains("RE-ROLL POINTS: [color=#e3a33f]4[/color]") and score_of.call(0) == "-" and score_of.call(5) == "-" and rolled_of.call(0) == "-", "a re-roll of everything costs 2 points and erases the scores")
+	check(_shown_labels() == ["ROLL", "BACK"], "and starts over")
+	var bonus_b := {"nm": "T", "race": "GNOME", "al": "GOOD", "st": {}, "rolls": {}, "rolled": 0, "rolling": false, "reroll": 6}
+	main.chars._attribute_rolled(bonus_b, "str", 10)
+	main.chars._attribute_rolled(bonus_b, "iq", 10)
+	main.chars._attribute_rolled(bonus_b, "pie", 10)
+	check(bonus_b["st"]["str"] == 9 and bonus_b["st"]["iq"] == 12 and bonus_b["st"]["pie"] == 10, "the race's bonus goes on the rolled score, and a statistic without one stays as rolled")
+	check(bonus_b["rolls"]["str"] == 10 and _stat_cell(0, 1) == "10" and _stat_cell(0, 2) == "-1" and _stat_cell(0, 3) == "9" and _stat_cell(2, 2) == "0", "the row shows the roll, the bonus and the total")
+	bonus_b["rolled"] = 0
+	main.chars._attribute_rolled(bonus_b, "str", 3)
+	check(bonus_b["st"]["str"] == 2, "a penalty can take the total under 3")
+	for bonus_stat in Data.STATS:
+		bonus_b["st"][bonus_stat] = 10
+	bonus_b["rolled"] = 5
+	main.chars._attribute_rolled(bonus_b, "luk", 18)
+	check(bonus_b["st"]["luk"] == 21, "and a bonus can take it over 18")
+	for bonus_race in Data.RACES:
+		check(Data.RACE_BONUS.has(bonus_race), "%s has its bonuses" % bonus_race)
+	check(Data.RACE_TEXT.has("HALF-ORC") and Data.RACE_BONUS["HALF-ORC"] == {"str": 3, "iq": -2, "agi": 1, "vit": 2}, "half-orcs get their bonuses")
+	check(Data.RACE_BONUS["HUMAN"].size() == 6 and Data.RACE_BONUS["HUMAN"].values().all(func(v): return v == 1), "humans get +1 to everything")
+	main.chars.create_stats("NEWBIE", "HUMAN", "GOOD")
+	var sum_seen := {}
+	for trial in 200:
+		var trial_b := {"nm": "T", "race": "HUMAN", "al": "GOOD", "st": {}, "rolls": {}, "rolled": 0, "rolling": false, "reroll": 6}
+		main.chars._roll_attribute(trial_b)
+		tray.finish_now()
+		sum_seen[trial_b["rolls"]["str"]] = true
+	check(sum_seen.keys().all(func(v): return v >= 3 and v <= 18) and sum_seen.size() > 8, "scores spread across 3-18")
+	var low := {}
+	var high := {}
+	for s in Data.STATS:
+		low[s] = 3
+		high[s] = 18
+	var done_b := {"nm": "T", "race": "HUMAN", "al": "GOOD", "st": high, "rolls": {}, "rolled": 6, "rolling": false, "reroll": 1}
+	main.chars._draw_stats(done_b)
+	check(main.scr["opts"].filter(func(o): return o["label"].begins_with("RE-ROLL"))[0]["dis"], "a re-roll needs the points to pay for it")
+	press("N")
+	check(main.scr["title"] == "Choose a class", "NEXT goes on to the classes")
+	press("L")
+	check(main.scr["title"] == "T: G-HUMAN" and _stat_cell(0, 3) == "18", "and coming back keeps the scores")
+	done_b["st"] = low
+	done_b["reroll"] = 2
+	main.chars._draw_stats(done_b)
+	check(_shown_labels()[0] == "RE-ROLL ALL (2)" and main.scr["opts"].filter(func(o): return o["label"] == "NEXT")[0]["dis"], "NEXT needs a class to qualify for")
+	done_b["reroll"] = 1
+	main.chars._draw_stats(done_b)
+	check(_shown_labels()[0] == "RE-ROLL ALL (2)" and not main.scr["widget"].get_node("Reroll_str").disabled, "with one point left, re-rolling one attribute is still a way out")
+	done_b["reroll"] = 0
+	main.chars._draw_stats(done_b)
+	check(_shown_labels()[0] == "RE-ROLL ALL (FREE)", "with no class and no points the re-roll is free, so nobody is stuck")
+	press("A")
+	check(done_b["reroll"] == 0 and done_b["rolled"] == 0, "and costs nothing")
+	main.chars.create_stats("NEWBIE", "HUMAN", "GOOD")
 
 
 func _click_spot(k: String) -> void:
@@ -811,6 +1006,24 @@ func _test_town_map(g) -> void:
 	check(main.scr["title"] == "Castle" and main.town_map.visible, "leaving the tavern returns to the map")
 	_click_spot("E")
 	check(main.scr["title"] == "Edge of Town", "clicking the gate opens the Edge of Town")
+	var edge_art: Texture2D = main._backdrop.texture
+	check(main._backdrop.visible and edge_art == load(TownScreens.EDGE_IMAGE), "the Edge of Town shows its painting")
+	check(absf(float(edge_art.get_width()) / edge_art.get_height() - 16.0 / 9.0) < 0.001, "the Edge of Town painting is 16:9")
+	check(main.scr["body"].contains("Many adventurers have walked this road...few returned."), "the Edge of Town has its line")
+	check(_shown_labels() == ["RETURN TO TOWN", "EXIT GAME"], "and only two buttons")
+	check(_row_labels("left") == ["RETURN TO TOWN"] and _row_button("left", 0).get_theme_stylebox("normal").bg_color == UiStyle.C_STONE2, "RETURN TO TOWN is blue")
+	check(_row_labels("right") == ["EXIT GAME"] and _row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "EXIT GAME is brown, at the right")
+	_row_button("left", 0).pressed.emit()
+	check(main.scr["title"] == "Castle" and main.town_map.visible and not main._backdrop.visible, "RETURN TO TOWN goes back to the map")
+	main.town.edge_of_town()
+	check(not main.town.has_method("utilities") and not main.town.has_method("restart_out"), "there are no OUT parties to restart")
+	var edge_party: Array = g.party.duplicate()
+	main.mz.enter_maze()
+	check(not main._backdrop.visible and main.place_image == "", "entering the Maze leaves the painting behind")
+	for edge_c in g.party_chars():
+		edge_c.loc = "CASTLE"
+	g.party = edge_party
+	main.town.edge_of_town()
 	press("C")
 	_click_spot("R")
 	check(main.scr["title"] == "Training Grounds", "clicking the yard opens the Training Grounds")
@@ -823,28 +1036,53 @@ func _test_town_map(g) -> void:
 	check(main.scr.get("opts", []).is_empty(), "the race screen uses its own buttons")
 	check(not main._side.visible, "no race popup shows until a race is clicked")
 	main.scr["widget"].get_node("DWARF").pressed.emit()
-	check(main._side.visible and main.scr["side"].get_child(0).text == "Dwarves are strong", "clicking a race opens its popup")
+	check(main._side.visible and main.scr["side"].get_child(0).text == "Dwarves are strong and pious", "clicking a race opens its popup")
 	var explain: Label = main.scr["side"].find_child("Explain", true, false)
 	for st in Data.STATS:
 		var info: Button = main.scr["side"].find_child("Info_" + st, true, false)
 		info.mouse_entered.emit()
-		check(explain.text == Data.STAT_INFO[st][1], "the (i) beside %s explains it" % st)
+		check(explain.text == Data.STAT_INFO[st][1], "the info icon beside %s explains it" % st)
+		check(info.icon != null and info.text == "", "and is an icon")
 		info.mouse_exited.emit()
-	check(main.scr["side"].get_child(2).get_child(0).text == "Strength: 10", "the popup shows the race's base statistics")
+		check(explain.text == "", "and there is no message until then")
+	var popup_grid: Node = main.scr["side"].get_child(2)
+	check(main.scr["side"].get_child(1).text == "Bonus Stats" and popup_grid.get_child(0).text == "Strength: +2", "the popup shows the race's bonuses")
+	check(popup_grid.get_child(2).text == "Intelligence: None", "and None where there is no bonus")
+	main.chars.create_race("RACER", "GNOME")
+	check(main.scr["side"].get_child(2).get_child(0).text == "Strength: -1", "a penalty shows as one")
+	main.scr["widget"].get_node("HALF-ORC").pressed.emit()
+	check(main.scr["side"].get_child(0).text == "Half-orcs are strong and tough" and main.scr["side"].get_child(2).get_child(2).text == "Intelligence: -2", "half-orcs can be chosen")
+	main.chars.create_race("RACER", "DWARF")
 	main.scr["side"].find_child("Choose", true, false).pressed.emit()
 	check(main.scr["title"] == "RACER: choose an alignment" and not main._side.visible, "choosing a race moves on and closes the popup")
+	check(_row_labels("left") == ["GOOD", "NEUTRAL", "EVIL"] and _row_labels("right") == ["BACK"], "the alignment screen has BACK at the right")
+	check(_row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "and it is brown")
+	press("L")
+	check(main.scr["title"] == "RACER: choose a race" and main._side.visible and main.scr["side"].get_child(0).text == "Dwarves are strong and pious", "BACK returns to the race, still selected")
+	main.scr["side"].find_child("Choose", true, false).pressed.emit()
 	press("G")
 	check(main.scr["title"].begins_with("RACER: G-DWARF"), "the chosen race carries through")
 	main.chars.create_race("RACER")
 	main.scr["widget"].get_node("Leave").pressed.emit()
-	check(main.scr["title"] == "Training Grounds", "leaving the race screen returns to the Training Grounds")
+	check(main.scr["title"] == "Create a character", "BACK on the race screen returns to the name")
+	main.chars.create_stats("RACER", "DWARF", "GOOD")
+	press("L")
+	check(main.scr["title"] == "RACER: choose an alignment", "BACK on the roll screen returns to the alignment")
+	main.town.temple()
+	check(main.scr["opts"][-1]["label"] == "EXIT" and main.scr["opts"][-1]["fn"] == main.town.castle, "the Temple returns to town, so it says EXIT")
+	main.town.inn()
+	check(main.scr["opts"][-1]["label"] == "EXIT", "and so does the Inn")
+	main.town.inn_rooms(g.roster[0])
+	check(main.scr["opts"][-1]["label"] == "BACK", "but the Inn's rooms go back to the Inn")
+	main.town.castle()
+	main.chars.training()
 	main.chars.create_stats("PAINTED", "HUMAN", "GOOD")
-	check(main._backdrop.texture == training_art, "spending bonus points keeps the painting")
+	check(main._backdrop.texture == training_art, "rolling attributes keeps the painting")
 	for sex in ["MALE", "FEMALE"]:
 		check(not Data.portraits(sex).is_empty(), "%s has portraits" % sex)
 		for portrait in Data.portraits(sex):
 			check(ResourceLoader.exists(Character.PORTRAIT_FILE % portrait), "portrait %s exists" % portrait)
-	var picked := {"nm": "PICKED", "race": "HUMAN", "al": "GOOD", "st": Data.RACES["HUMAN"].duplicate(), "pts": 0, "max": 0}
+	var picked := {"nm": "PICKED", "race": "HUMAN", "al": "GOOD", "st": Data.RACES["HUMAN"].duplicate(), "rolls": {}, "rolled": Data.STATS.size(), "rolling": false, "reroll": 0}
 	main.chars.create_sex(picked, "FIGHTER")
 	press("F")
 	check(main.scr["title"].ends_with("choose a portrait") and main.scr["widget"].get_child_count() == 12 and main.scr["widget"].columns == 4, "a page of portraits is a 4x3 grid")
@@ -852,35 +1090,64 @@ func _test_town_map(g) -> void:
 	check(not press("B"), "the first page of portraits has nothing before it")
 	check(press("N") and main.scr["widget"].get_child_count() == 12, "the next page of portraits offers twelve more")
 	var keep_nm: String = picked["nm"]
+	var page_names := func() -> Array:
+		return main.scr["widget"].get_children().map(func(n): return String(n.name))
+	for shuffle_sex in ["MALE", "FEMALE"]:
+		main.chars.create_portrait(picked, "FIGHTER", shuffle_sex)
+		var dealt: Array = page_names.call()
+		var first_page: Array = dealt.duplicate()
+		while press("N"):
+			dealt.append_array(page_names.call())
+		var dealt_sorted: Array = dealt.duplicate()
+		var all_sorted: Array = Data.portraits(shuffle_sex).duplicate()
+		dealt_sorted.sort()
+		all_sorted.sort()
+		check(dealt_sorted == all_sorted, "every %s portrait is offered exactly once" % shuffle_sex)
+		check(dealt != Data.portraits(shuffle_sex), "and not in file order")
+		while press("B"):
+			pass
+		check(page_names.call() == first_page, "turning the pages keeps the order")
+		main.chars.create_portrait(picked, "FIGHTER", shuffle_sex)
+		check(page_names.call() != first_page, "and coming back deals them anew")
+	var shuffle_seed := randi()
+	seed(shuffle_seed)
+	var seed_expect := randi()
+	seed(shuffle_seed)
+	main.chars.create_portrait(picked, "FIGHTER", "FEMALE")
+	check(randi() == seed_expect, "dealing the portraits leaves the game's dice alone")
+	var file_order: Array = Data.portraits("FEMALE")
 	var taken_first: Character = g.roster[0]
 	var taken_keep: String = taken_first.portrait
-	taken_first.portrait = Data.portraits("FEMALE")[12]
-	main.chars.create_portrait(picked, "FIGHTER", "FEMALE", 1)
+	taken_first.portrait = file_order[12]
+	var taken_pick := func(_p): pass
+	main.chars._portrait_picker("PICKED", "FEMALE", 1, taken_pick, taken_pick, null, file_order)
 	check(main.scr["widget"].get_child(0).disabled and not main.scr["widget"].get_child(1).disabled, "a portrait another character has can't be selected")
 	press("N")
 	press("B")
 	check(main.scr["widget"].get_child(0).disabled, "it stays taken after turning the page")
-	main.chars._portrait_picker(taken_first.name, "FEMALE", 1, func(_p): pass, func(): pass, taken_first)
+	main.chars._portrait_picker(taken_first.name, "FEMALE", 1, taken_pick, taken_pick, taken_first, file_order)
 	check(not main.scr["widget"].get_child(0).disabled, "a character can keep their own portrait")
 	taken_first.portrait = taken_keep
 	main.chars.create_portrait(picked, "FIGHTER", "FEMALE", 1)
+	var clicked_portrait := String(main.scr["widget"].get_child(1).name)
 	main.scr["widget"].get_child(1).pressed.emit()
-	check(picked["portrait"] == "female_14", "clicking a portrait picks from the page on show")
+	check(picked["portrait"] == clicked_portrait, "clicking a portrait picks from the page on show")
 	check(keep_nm == "PICKED", "picking a portrait keeps the character")
 	main.chars.create_portrait(picked, "FIGHTER", "FEMALE", ceili(Data.portraits("FEMALE").size() / 12.0) - 1)
 	check(not press("N") and main.scr["widget"].get_child_count() == (Data.portraits("FEMALE").size() - 1) % 12 + 1, "the last page holds the remaining portraits")
 	main.chars.create_portrait(picked, "FIGHTER", "MALE")
 	check(main.scr["widget"].get_child_count() == 12 and press("N") and main.scr["widget"].get_child_count() == 12, "the male portraits have pages too")
 	main.chars.create_portrait(picked, "FIGHTER", "FEMALE")
+	var kept_portrait := String(main.scr["widget"].get_child(1).name)
 	main.scr["widget"].get_child(1).pressed.emit()
 	check(main.scr["title"] == "Keep this character?" and main._portrait.visible, "the confirmation shows the chosen portrait")
 	press("Y")
 	var made: Character = g.roster.back()
-	check(made.name == "PICKED" and made.sex == "FEMALE" and made.portrait == "female_2", "the new character keeps the sex and portrait chosen")
+	check(made.name == "PICKED" and made.sex == "FEMALE" and made.portrait == kept_portrait, "the new character keeps the sex and portrait chosen")
 	check(not main._portrait.visible, "the Training Grounds hide the portrait again")
 	check(made.his() == "HER" and made.him() == "HER", "a female character gets female pronouns")
 	var reloaded := Character.from_dict(JSON.parse_string(JSON.stringify(made.to_dict())))
-	check(reloaded.sex == "FEMALE" and reloaded.portrait == "female_2", "sex and portrait survive a save")
+	check(reloaded.sex == "FEMALE" and reloaded.portrait == kept_portrait, "sex and portrait survive a save")
 	var old_save := made.to_dict()
 	old_save.erase("sex")
 	old_save.erase("portrait")
@@ -890,21 +1157,35 @@ func _test_town_map(g) -> void:
 	old_woman["portrait"] = "female_9999"
 	check(Character.from_dict(old_woman).portrait == "female_1", "a missing portrait defaults to portrait 1 of the right sex")
 	main.chars.inspect(old_char, "tavern", main.chars.training)
-	check(main._portrait.visible and main._portrait_image.texture != null, "inspecting a character from an older save shows a portrait")
+	check(main._sheet.visible and main._sheet.find_child("Portrait", true, false).texture != null, "inspecting a character from an older save shows a portrait")
 	old_char.portrait = ""
 	main.chars.train_char(made)
 	check(main._portrait.visible and main._portrait_image.texture != null, "inspecting a character shows their portrait")
 	main.chars.train_char(old_char)
 	check(not main._portrait.visible, "a character with no portrait shows none")
 	main.chars.train_char(made)
+	check(_row_labels("right") == ["BACK"] and _row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL and _row_button("right", 0).get_theme_font_size("font_size") < 22, "BACK is small and brown, at the right")
+	check(_row_labels("left").has("CHANGE PORTRAIT"), "with the other buttons on the left")
+	main.chars._choose_class(picked, ["FIGHTER"])
+	check(main._pager_row.get_child(-1).text == "BACK" and main._pager_row.get_child(-1).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "a list's BACK is too")
+	main.chars.train_char(made)
+	press("N")
+	check(main.scr["title"] == "Rename PICKED" and _row_labels("left") == ["SELECT"] and _row_labels("right") == ["BACK"], "Change Name asks for the new name")
+	main._on_input_submitted(g.roster[0].name)
+	check(made.name == "PICKED" and main.scr["title"] == "Rename PICKED", "a taken name is refused")
+	main._on_input_submitted("RENAMED")
+	check(made.name == "RENAMED" and main.scr["title"] == "RENAMED", "a free name is taken, back on the character's screen")
+	made.name = "PICKED"
+	main.chars.train_char(made)
 	press("P")
 	check(main.scr["title"] == "PICKED: choose a portrait" and main.scr["widget"].get_child_count() == 12, "Change Portrait opens the picker")
 	press("L")
-	check(main.scr["title"] == "PICKED" and made.portrait == "female_2", "leaving the picker keeps the old portrait")
+	check(main.scr["title"] == "PICKED" and made.portrait == kept_portrait, "leaving the picker keeps the old portrait")
 	press("P")
 	press("N")
+	var changed_portrait := String(main.scr["widget"].get_child(0).name)
 	main.scr["widget"].get_child(0).pressed.emit()
-	check(main.scr["title"] == "PICKED" and made.portrait == "female_13", "Change Portrait replaces the portrait")
+	check(main.scr["title"] == "PICKED" and made.portrait == changed_portrait, "Change Portrait replaces the portrait")
 	check(main._portrait_image.texture == load(made.portrait_path()), "the character screen shows the new portrait")
 	g.roster.erase(made)
 	main.chars.training()
@@ -926,10 +1207,8 @@ func _test_town_map(g) -> void:
 	var boltac_art: Texture2D = main._backdrop.texture
 	check(main._backdrop.visible and boltac_art != null, "clicking Boltac's shows its painting")
 	check(absf(float(boltac_art.get_width()) / boltac_art.get_height() - 16.0 / 9.0) < 0.001, "Boltac's painting is 16:9")
-	check(not main._gear.visible and not main._table.visible, "Boltac's opens on the clear painting")
+	check(main._gear.visible and not main._table.visible, "Boltac's shows the party as a grid instead of the table")
 	var gear_hero: Character = g.party_chars()[0]
-	main.town.shop(gear_hero)
-	check(main._gear.visible and not main._table.visible, "picking a member shows the party as a grid instead of the table")
 	var gear_keep: Array = gear_hero.items
 	gear_hero.items = []
 	main.rerender()
@@ -969,8 +1248,6 @@ func _test_town_map(g) -> void:
 	press("S")
 	check(main.scr["title"] == "Sell" and main._backdrop.texture == boltac_art, "selling keeps the painting")
 	press("L")
-	press("L")
-	check(main.scr["title"] == "Boltac's Trading Post" and not main._gear.visible, "EXIT closes Boltac's cards first")
 	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving Boltac's clears its painting")
 	check(not main._gear.visible, "leaving Boltac's clears the party grid")
@@ -1017,7 +1294,7 @@ func _test_town_map(g) -> void:
 	var real_name: String = long_named.name
 	long_named.name = "BARTHOLOMEWSMIT"  # the longest name, which is what used to wrap
 	main.town.castle()
-	main.town.edge_of_town()
+	main.show_screen({"title": "Unpainted", "view": "edge"})
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var plain_height: int = main._party.get_content_height()
@@ -1031,7 +1308,7 @@ func _test_town_map(g) -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	main.town.castle()
-	main.town.edge_of_town()
+	main.show_screen({"title": "Unpainted", "view": "edge"})
 	await get_tree().process_frame
 	await get_tree().process_frame
 	check(main._party.get_content_height() == plain_height, "the party table recovers its layout after the temple (%d, was %d)" % [main._party.get_content_height(), plain_height])
@@ -1058,13 +1335,6 @@ func _click() -> InputEventMouseButton:
 	ev.button_index = MOUSE_BUTTON_LEFT
 	ev.pressed = true
 	return ev
-
-
-func _ok_button() -> Button:
-	for b in main._opts_flow.get_children():
-		if b.text == "OK" and not b.is_queued_for_deletion():
-			return b
-	return null
 
 
 func _scene_is(path: String) -> bool:
@@ -1110,7 +1380,7 @@ func _test_start_flow(g, roster_size: int) -> void:
 	var venture_rect: Rect2 = title.venture_button.get_global_rect()
 	var options_rect: Rect2 = title.options_button.get_global_rect()
 	check(absf(venture_rect.get_center().x - title_rect.get_center().x) < 1.0, "venture onwards stays centered")
-	check(absf(venture_rect.position.y - title_rect.size.y * title.VENTURE_TOP) < 1.0, "venture onwards starts under the torch")
+	check(absf(venture_rect.get_center().y - title._tap.get_global_rect().get_center().y) < 1.0 and absf(venture_rect.get_center().x - title._tap.get_global_rect().get_center().x) < 1.0, "venture onwards takes the tap message's place")
 	check(venture_rect.end.y < title_rect.end.y, "venture onwards fits on the screen")
 	check(absf(options_rect.end.x - (title_rect.end.x - title.OPTIONS_MARGIN)) < 1.0 and absf(options_rect.end.y - (title_rect.end.y - title.OPTIONS_MARGIN)) < 1.0, "options sits in the bottom right corner")
 	check(title.venture_button.text == "Venture Onwards" and title.options_button.text == "Options" and title.nav.get_child_count() == 2, "the title has its two buttons")

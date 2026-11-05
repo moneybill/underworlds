@@ -26,6 +26,7 @@ static func mk_group(id: String, n: int) -> Dictionary:
 
 
 ## Rolls up an encounter for the current Maze level.
+var _acting: Character = null  # who is acting, to credit with any kills
 var sounds: Array = []  # what monsters did this round that can make a sound: {id, event}
 var _acts: Array = []  # what is left to happen this round, in order
 var results: Array = []  # what the party's attacks did this round, to show on the monsters: {g, who, text, hit}
@@ -168,7 +169,9 @@ func step() -> void:
 	if a.get("mon", false):
 		_mon_act(a["gp"], a["m"])
 	else:
+		_acting = a["c"]
 		_party_act(a)
+		_acting = null
 
 
 func finish_round() -> String:
@@ -219,6 +222,8 @@ func _kill(m: Dictionary, dispelled := false) -> void:
 	m["dead"] = true
 	m["hp"] = 0
 	m["disp"] = dispelled
+	if _acting != null:
+		Character.add_to(_acting.kills, m["id"], 1)
 	sounds.append({"id": m["id"], "event": MonsterSounds.DEATH})
 
 
@@ -308,6 +313,8 @@ func _fight(c: Character, g: int, backstab := false) -> void:
 			dmg += d
 			if _hurt(tgt, d):
 				killed += 1
+	if dmg > 0:
+		Character.add_to(c.weapon_damage, c.item_name(wpn) if wpn != null else Character.BARE_HANDS, dmg)
 	var nm := a_name(gp)
 	var shown := "MISSES!" if hits == 0 else ("%s FOR %d DAMAGE" % ["BACKSTABS" if backstab else "HITS", dmg] if dmg > 0 else "LANDS A CRITICAL HIT!")
 	results.append({"g": groups.find(gp), "who": c.name, "text": shown, "hit": hits > 0})
@@ -338,6 +345,8 @@ func _cast(c: Character, n: String, t: Variant) -> void:
 			tot += d
 			if _hurt(m, d):
 				k += 1
+		if tot > 0:
+			Character.add_to(c.spell_damage, n, tot)
 		if tg.is_empty():
 			Game.say("THE SPARKS MISS EVERYONE.", "mag")
 		else:

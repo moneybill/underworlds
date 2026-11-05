@@ -1,23 +1,24 @@
 class_name TownScreens
 extends RefCounted
 ## The Castle and its shops: Gilgamesh's Tavern, Boltac's Trading Post, the Temple of Cant,
-## the Adventurer's Inn, the Edge of Town and the Utilities.
+## the Adventurer's Inn and the Edge of Town.
 
 const TAVERN_IMAGE := "res://assets/images/tavern.webp"
 const BOLTAC_IMAGE := "res://assets/images/boltac.webp"
 const GEAR_PLACES := [TAVERN_IMAGE, BOLTAC_IMAGE]  # the buildings that show the party with its equipment
 const GEAR_SLOTS := [["Weapon", "W"], ["Helm", "H"], ["Armor", "A"], ["Shield", "S"]]  # in Data.ITEMS' slot letters
-const CARD_ALPHA := 0.5  # the painting shows through the cards
+const CARD_ALPHA := 0.625  # the painting shows through the cards
 const GEAR_FONT := 15
 const GEAR_FONT_MIN := 11
 const MAX_PARTY := 6
-const SELECT_HINT := "Click a party member to select them."
 const BUY_OFFER := "I will haggle no further, this is my best price!"
 const SELL_OFFER := "This is my offer, take it or leave it..."
 const BUY_NOTE_FONT := 18  # four sizes under the body text
+const SELECT_HINT := "Click a party member to select them."
 const BOLTAC_TEXT := "The scent of cedar shavings, dank polishing oil, and cold iron hangs heavy in the air. Boltac's is the premier depot for adventurers seeking to upgrade their arsenal and spend their hard earned coin."
 const INN_IMAGE := "res://assets/images/inn.webp"
 const TEMPLE_IMAGE := "res://assets/images/temple.webp"
+const EDGE_IMAGE := "res://assets/images/edge.webp"
 
 var ui
 
@@ -57,36 +58,17 @@ func tavern() -> void:
 	if not ps.has(_selected):
 		_selected = null
 	var chosen := _selected != null
-	var add := {"k": "A", "label": "ADD", "small": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)}
-	var divvy := {"k": "D", "label": "DIVVY GOLD", "small": true, "dis": ps.is_empty(), "fn": _divvy}
-	var opts := _member_buttons(select_member) + [add, divvy, {"k": "L", "label": "EXIT", "fn": castle}]
-	if chosen:  # the same buttons, now under the cards
-		add["in_widget"] = true
-		divvy["in_widget"] = true
-		divvy["gear_at"] = "center"
-		opts = [add,
-			{"k": "R", "label": "DROP", "in_widget": true, "small": true, "fn": _remove.bind(_selected)},
-			divvy,
-			{"k": "I", "label": "INSPECT", "in_widget": true, "small": true, "gear_at": "right", "fn": ui.chars.inspect.bind(_selected, "tavern", tavern)},
-			{"k": "L", "label": "EXIT", "fn": _close_cards.bind(tavern)},
-		]
+	var opts := [
+		{"k": "A", "label": "ADD", "in_widget": true, "small": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
+		{"k": "R", "label": "DROP", "in_widget": true, "small": true, "hide": not chosen, "fn": _remove.bind(_selected)},
+		{"k": "D", "label": "DIVVY GOLD", "in_widget": true, "small": true, "gear_at": "center", "dis": ps.is_empty(), "fn": _divvy},
+		{"k": "I", "label": "INSPECT", "in_widget": true, "small": true, "gear_at": "right", "hide": not chosen, "fn": ui.chars.inspect.bind(_selected, "tavern", tavern)},
+		{"k": "L", "label": "EXIT", "fn": castle},
+	]
+	var hint := SELECT_HINT if not ps.is_empty() else "Add adventurers to form a party."
 	ui.show_screen({"title": "Gilgamesh's Tavern", "where": "Gilgamesh's Tavern", "view": "tavern", "opts": opts,
-		"gear_pick": select_member, "gear_hint": SELECT_HINT,
+		"gear_pick": select_member, "gear_hint": hint,
 		"body": ui.flav("Smoke hangs over the scarred tables and a haunch of boar turns over the fire. Small groups of adventurers talk in low voices.")})
-
-
-## A small button for each member: what opens the party's cards over a painting.
-func _member_buttons(pick: Callable) -> Array:
-	var buttons := []
-	for c in Game.party_chars():
-		buttons.append({"k": "M%d" % buttons.size(), "label": c.name, "small": true, "fn": pick.bind(c)})
-	return buttons
-
-
-## Back from the cards to the clear painting.
-func _close_cards(place: Callable) -> void:
-	_selected = null
-	place.call()
 
 
 func select_member(c: Character) -> void:
@@ -159,20 +141,17 @@ func boltac() -> void:
 	if not ps.has(_selected):
 		_selected = null
 	var c := _selected
-	if c == null:
-		ui.show_screen({"title": "Boltac's Trading Post", "where": "Boltac's Trading Post", "view": "shop", "body": ui.flav(BOLTAC_TEXT),
-			"opts": _member_buttons(shop) + [{"k": "L", "label": "EXIT", "fn": castle}]})
-		return
+	var chosen := c != null
 	ui.show_screen({"title": "Boltac's Trading Post", "where": "Boltac's Trading Post", "view": "shop",
 		"gear_pick": shop, "gear_hint": SELECT_HINT,
 		"body": ui.flav(BOLTAC_TEXT),
 		"opts": [
-			{"k": "B", "label": "BUY", "in_widget": true, "small": true, "fn": buy.bind(c, 0)},
-			{"k": "S", "label": "SELL", "in_widget": true, "small": true, "fn": sell.bind(c)},
-			{"k": "U", "label": "UNCURSE", "in_widget": true, "small": true, "hide": _fee_items(c, "U").is_empty(), "fn": fee_service.bind(c, "U")},
-			{"k": "I", "label": "IDENTIFY", "in_widget": true, "small": true, "hide": _fee_items(c, "I").is_empty(), "fn": fee_service.bind(c, "I")},
-			{"k": "P", "label": "POOL GOLD", "in_widget": true, "small": true, "fn": func(): Game.pool_gold(c); boltac()},
-			{"k": "L", "label": "EXIT", "fn": _close_cards.bind(boltac)},
+			{"k": "B", "label": "BUY", "in_widget": true, "small": true, "hide": not chosen, "fn": buy.bind(c, 0)},
+			{"k": "S", "label": "SELL", "in_widget": true, "small": true, "hide": not chosen, "fn": sell.bind(c)},
+			{"k": "U", "label": "UNCURSE", "in_widget": true, "small": true, "hide": not chosen or _fee_items(c, "U").is_empty(), "fn": fee_service.bind(c, "U")},
+			{"k": "I", "label": "IDENTIFY", "in_widget": true, "small": true, "hide": not chosen or _fee_items(c, "I").is_empty(), "fn": fee_service.bind(c, "I")},
+			{"k": "P", "label": "POOL GOLD", "in_widget": true, "small": true, "hide": not chosen, "fn": func(): Game.pool_gold(c); boltac()},
+			{"k": "L", "label": "EXIT", "fn": castle},
 		]})
 
 
@@ -387,70 +366,15 @@ func stay(c: Character, heal: int, fee: int) -> void:
 	ui.say("Adventurer's Inn", ui.esc("\n".join(lines)), inn)
 
 
-# ---------- Edge of Town & Utilities ----------
+# ---------- Edge of Town ----------
 func edge_of_town() -> void:
-	var any_alive := not Game.living().is_empty()
+	ui.place_image = EDGE_IMAGE
 	ui.show_screen({"title": "Edge of Town", "where": "Edge of Town", "view": "edge",
-		"body": ui.flav("Screams and loud munching drift up from the stair to the Maze.") + ("" if not Game.party.is_empty() else "\n\nForm a party in the Tavern before entering the Maze."),
+		"body": ui.flav("Many adventurers have walked this road...few returned."),
 		"opts": [
-			{"k": "M", "label": "MAZE", "dis": not any_alive, "fn": ui.mz.enter_maze},
-			{"k": "T", "label": "TRAINING GROUNDS", "fn": ui.chars.training},
-			{"k": "U", "label": "UTILITIES", "fn": utilities},
-			{"k": "C", "label": "CASTLE", "fn": castle},
-			{"k": "Q", "label": "EXIT GAME", "fn": func(): Game.save_game(); ui.get_tree().quit()},
+			{"k": "C", "label": "RETURN TO TOWN", "fn": castle},
+			{"k": "Q", "label": "EXIT GAME", "small": true, "at": "right", "fn": func(): Game.save_game(); ui.get_tree().quit()},
 		]})
-
-
-func utilities() -> void:
-	ui.show_screen({"title": "Utilities", "where": "Utilities", "view": "edge", "opts": [
-		{"k": "C", "label": "CHANGE NAME", "fn": func(): ui.chars.roster_pick("Rename whom?", func(_c): return true, _rename, utilities)},
-		{"k": "R", "label": "RESTART AN \"OUT\" PARTY", "dis": Game.outs.is_empty() or not Game.party.is_empty(), "fn": restart_out},
-		{"k": "L", "label": "EXIT", "fn": edge_of_town},
-	]})
-
-
-func _rename(c: Character) -> void:
-	ui.show_screen({"title": "Rename %s" % c.name, "view": "edge", "body": "Type the new name, then choose OK.",
-		"input": {"ph": "NEW NAME", "fn": func(v): _do_rename(c, v)}, "opts": [{"k": "Escape", "label": "EXIT", "fn": utilities}]})
-
-
-func _do_rename(c: Character, v: String) -> void:
-	var taken := Game.roster.any(func(o): return o.name == v)
-	if v != "" and not taken:
-		c.name = v
-		Game.save_game()
-		Game.say("NOW KNOWN AS %s." % v)
-	utilities()
-
-
-func restart_out() -> void:
-	var items := []
-	for i in Game.outs.size():
-		var o: Dictionary = Game.outs[i]
-		var names := []
-		for cid in o["ids"]:
-			var c := Game.ch(cid)
-			if c != null:
-				names.append(c.name)
-		items.append({"label": ", ".join(names), "right": "LEVEL %d" % o["pos"]["z"], "fn": _restart.bind(i)})
-	ui.choose_list("Restart which party?", ui.flav("The whole party returns to exactly where it was left."), items, utilities)
-
-
-func _restart(i: int) -> void:
-	var o: Dictionary = Game.outs[i]
-	Game.outs.remove_at(i)
-	Game.party.clear()
-	for cid in o["ids"]:
-		var c := Game.ch(cid)
-		if c != null and c.loc == "OUT":
-			Game.party.append(c.id)
-			c.loc = "MAZE"
-	Game.pos = o["pos"].duplicate()
-	Game.light = 0
-	Game.maporfic = 0
-	Game.latumapic = false
-	Game.cleared = {}
-	ui.mz.camp()
 
 
 func return_to_castle() -> void:

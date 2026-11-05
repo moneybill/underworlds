@@ -11,13 +11,24 @@ const RACES := {
 	"DWARF":  {"str": 10, "iq": 7,  "pie": 10, "vit": 10, "agi": 5,  "luk": 6},
 	"GNOME":  {"str": 7,  "iq": 7,  "pie": 10, "vit": 8,  "agi": 10, "luk": 7},
 	"HOBBIT": {"str": 5,  "iq": 7,  "pie": 7,  "vit": 6,  "agi": 10, "luk": 15},
+	"HALF-ORC": {"str": 11, "iq": 5, "pie": 7, "vit": 10, "agi": 8, "luk": 7},
 }
 const RACE_TEXT := {
 	"HUMAN": "Humans are steady",
-	"ELF": "Elves are clever and pious",
-	"DWARF": "Dwarves are strong",
-	"GNOME": "Gnomes are pious and agile",
-	"HOBBIT": "Hobbits are agile and very lucky",
+	"ELF": "Elves are clever and agile",
+	"DWARF": "Dwarves are strong and pious",
+	"GNOME": "Gnomes are clever and lucky",
+	"HOBBIT": "Hobbits are agile and lucky",
+	"HALF-ORC": "Half-orcs are strong and tough",
+}
+## What each race adds to a rolled score. A statistic that isn't listed gets nothing.
+const RACE_BONUS := {
+	"HUMAN": {"str": 1, "iq": 1, "pie": 1, "vit": 1, "agi": 1, "luk": 1},
+	"ELF": {"iq": 2, "agi": 2},
+	"DWARF": {"str": 2, "pie": 2},
+	"GNOME": {"str": -1, "iq": 2, "luk": 3},
+	"HOBBIT": {"agi": 2, "luk": 2},
+	"HALF-ORC": {"str": 3, "iq": -2, "agi": 1, "vit": 2},
 }
 ## Each statistic's full name and what it does, for the race screen.
 const STAT_INFO := {
@@ -30,7 +41,7 @@ const STAT_INFO := {
 }
 const ALIGNS := ["GOOD", "NEUTRAL", "EVIL"]
 ## How many portraits a new character can choose from, by sex: assets/images/portraits/male_1.webp and on.
-const PORTRAIT_COUNTS := {"MALE": 45, "FEMALE": 45}
+const PORTRAIT_COUNTS := {"MALE": 56, "FEMALE": 54}
 
 ## al: allowed alignment initials. M / P: [first character level that learns that school, levels per extra spell level].
 const CLASSES := {
@@ -148,14 +159,14 @@ const MONS := {
 	"PRIEST1": {"n": "LVL 1 PRIEST", "u": "MAN IN ROBE", "look": "robe", "lv": 1, "hp": [4, 9], "ac": 8, "atk": ["1d6"], "xp": 50, "g": [1, 3], "sp": ["BADIOS", "DIOS"], "friendly": true},
 	"ZOMBIE":  {"n": "ZOMBIE", "u": "CORPSE-LIKE CREATURE", "look": "undead", "lv": 2, "hp": [8, 18], "ac": 8, "atk": ["1d8"], "xp": 90, "g": [2, 5], "undead": true},
 	"TOAD":    {"n": "GIANT TOAD", "u": "AMPHIBIAN", "look": "beast", "lv": 2, "hp": [8, 16], "ac": 7, "atk": ["1d6"], "xp": 100, "g": [1, 4], "poison": true},
-	"HWAY":    {"n": "HIGHWAYMAN", "u": "MAN IN LEATHER", "look": "humanoid", "lv": 2, "hp": [8, 16], "ac": 7, "atk": ["1d8"], "xp": 110, "g": [2, 5]},
+	"HWAY":    {"n": "HIGHWAYMAN", "pl": "HIGHWAYMEN", "u": "MAN IN LEATHER", "look": "humanoid", "lv": 2, "hp": [8, 16], "ac": 7, "atk": ["1d8"], "xp": 110, "g": [2, 5]},
 	"MAGE3":   {"n": "LVL 3 MAGE", "u": "MAN IN ROBE", "look": "robe", "lv": 3, "hp": [8, 14], "ac": 9, "atk": ["1d4"], "xp": 160, "g": [1, 3], "sp": ["HALITO", "KATINO", "MAHALITO"]},
 	"SPIDER":  {"n": "HUGE SPIDER", "u": "INSECT", "look": "beast", "lv": 2, "hp": [6, 14], "ac": 6, "atk": ["1d6"], "xp": 110, "g": [1, 4], "poison": true},
 	"GAS":     {"n": "GAS CLOUD", "u": "CLOUD", "look": "cloud", "lv": 2, "hp": [5, 10], "ac": 6, "atk": ["1d2"], "xp": 120, "g": [1, 3], "breath": "1d6", "sleep_res": 100},
 	"GHOUL":   {"n": "GHOUL", "u": "CORPSE-LIKE CREATURE", "look": "undead", "lv": 4, "hp": [16, 30], "ac": 6, "atk": ["1d4", "1d4", "1d6"], "xp": 280, "g": [1, 4], "undead": true, "para": true},
 	"GARG":    {"n": "GARGOYLE", "u": "STATUE", "look": "daemon", "lv": 4, "hp": [18, 32], "ac": 5, "atk": ["1d6", "1d6"], "xp": 320, "g": [1, 3], "sleep_res": 60},
 	"PRIEST5": {"n": "LVL 5 PRIEST", "u": "MAN IN ROBE", "look": "robe", "lv": 5, "hp": [16, 26], "ac": 6, "atk": ["1d8"], "xp": 300, "g": [1, 3], "sp": ["BADIAL", "DIAL", "MANIFO"]},
-	"DRAGPUP": {"n": "DRAGON PUPPY", "u": "SMALL DRAGON", "look": "dragon", "lv": 4, "hp": [20, 30], "ac": 5, "atk": ["1d8"], "xp": 400, "g": [1, 2], "breath": "2d6"},
+	"DRAGPUP": {"n": "DRAGON PUPPY", "pl": "DRAGON PUPPIES", "u": "SMALL DRAGON", "look": "dragon", "lv": 4, "hp": [20, 30], "ac": 5, "atk": ["1d8"], "xp": 400, "g": [1, 2], "breath": "2d6"},
 	"BUSH":    {"n": "BUSHWACKER", "u": "MAN IN LEATHER", "look": "humanoid", "lv": 4, "hp": [16, 28], "ac": 4, "atk": ["1d10"], "xp": 260, "g": [2, 4]},
 	"VAMP":    {"n": "VAMPIRE", "u": "MAN IN BLACK", "look": "undead", "lv": 7, "hp": [40, 60], "ac": 0, "atk": ["1d10", "1d6"], "xp": 900, "g": [1, 3], "undead": true, "para": true},
 	"MAGE7":   {"n": "LVL 7 MAGE", "u": "MAN IN ROBE", "look": "robe", "lv": 7, "hp": [24, 36], "ac": 6, "atk": ["1d4"], "xp": 800, "g": [1, 3], "sp": ["MAHALITO", "LAHALITO", "KATINO"]},
@@ -169,9 +180,9 @@ const MONS := {
 	"GDAEMON": {"n": "GREATER DAEMON", "u": "DEMON", "look": "daemon", "lv": 8, "hp": [60, 80], "ac": -1, "atk": ["2d8", "2d6"], "xp": 1700, "g": [1, 1], "sleep_res": 85},
 	"REDDRAG": {"n": "RED DRAGON", "u": "DRAGON", "look": "dragon", "lv": 9, "hp": [80, 100], "ac": -2, "atk": ["2d8", "1d10"], "xp": 2200, "g": [1, 1], "breath": "5d6", "sleep_res": 80},
 	"YETI":    {"n": "YETI", "u": "SHAGGY HUMANOID", "look": "humanoid", "lv": 5, "hp": [32, 46], "ac": 4, "atk": ["2d6", "1d8"], "xp": 620, "g": [1, 2], "sleep_res": 20},
-	"SPAWN":   {"n": "VAMPIRE SPAWN", "u": "CLOAKED FIGURE", "look": "undead", "lv": 5, "hp": [24, 36], "ac": 4, "atk": ["1d8", "1d4"], "xp": 600, "g": [1, 3], "undead": true, "para": true},
+	"SPAWN":   {"n": "VAMPIRE SPAWN", "pl": "VAMPIRE SPAWN", "u": "CLOAKED FIGURE", "look": "undead", "lv": 5, "hp": [24, 36], "ac": 4, "atk": ["1d8", "1d4"], "xp": 600, "g": [1, 3], "undead": true, "para": true},
 	"DLORD":   {"n": "DAEMON LORD", "u": "DEMON", "look": "daemon", "lv": 9, "hp": [85, 110], "ac": -3, "atk": ["2d8", "2d6"], "xp": 2600, "g": [1, 1], "sp": ["MAHALITO", "LAHALITO", "KATINO"], "sleep_res": 90},
-	"WERDNA":  {"n": "WERDNA", "u": "MAN IN ROBES", "look": "boss", "lv": 10, "hp": [110, 130], "ac": -3, "atk": ["2d6"], "xp": 6000, "g": [1, 1],
+	"WERDNA":  {"n": "WERDNA", "pl": "WERDNA", "u": "MAN IN ROBES", "look": "boss", "lv": 10, "hp": [110, 130], "ac": -3, "atk": ["2d6"], "xp": 6000, "g": [1, 1],
 		"sp": ["LAHALITO", "MAHALITO", "MADALTO", "KATINO"], "sleep_res": 100, "boss": true},
 }
 const MON_BY_LEVEL := [[],

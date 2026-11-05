@@ -19,7 +19,7 @@ var pos := {"x": 0, "y": 0, "z": 1, "d": 0}
 var mode := "castle"  # castle, camp, maze, combat
 var next_id := 1
 var stock := {}
-var outs: Array = []  # stranded parties: {ids: [], pos: {}}
+var outs: Array = []  # wiped parties, where they fell: {ids: [], pos: {}}
 var light := 0  # steps of MILWA left; 9999 = LOMILWA
 var maporfic := 0
 var latumapic := false
@@ -182,6 +182,7 @@ func split_gold(amount: int) -> void:
 	var each := amount / surv.size()
 	for c in surv:
 		c.gold += each
+		c.gold_found += each
 	say("EACH SURVIVOR FINDS %d GOLD PIECES." % each, "gold")
 
 

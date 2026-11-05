@@ -7,8 +7,9 @@ const PORTRAIT_SIZE := 300.0
 const BACKDROP_COLUMN := 540.0  # width of the text column over a painted backdrop, clear of its center
 const GEAR_COLUMN := 600.0  # width of the party's equipment over a painting
 const GEAR_PANEL_MARGIN := 8.0  # inside its panel
-const GEAR_PANEL_ALPHA := 0.35  # the painting shows through, more so than through the text column
-const BACKDROP_PANEL_ALPHA := 0.7
+const SHEET_MARGIN := 8.0  # inside the character sheet's panel
+const GEAR_PANEL_ALPHA := 0.51  # the painting shows through, more so than through the text column
+const BACKDROP_PANEL_ALPHA := 0.775
 const CONFIRM_WIDTH := 560.0
 const CONFIRM_LAYER := 100  # above the test switches
 const CONFIRM_DIM := Color(0, 0, 0, 0.6)
@@ -17,6 +18,7 @@ const VIEW_NOTE_DROP := 6.0  # below the monsters
 const VIEW_NOTE_BACK := Color(0, 0, 0, 0.7)  # keeps it readable over the painted walls
 const PAGER_DROP := 15.0  # extra room between a list and its row of small buttons
 const PAGER_FONT := UiStyle.SMALL_BUTTON_FONT
+const BIG_BUTTON_FONT := 28
 const PAGER_FILL := UiStyle.C_BROWN  # to stand apart from the list above
 const PAGER_EDGE := UiStyle.C_BROWN_EDGE
 const PAGER_EXIT_FILL := Color("6e2a26")  # oxblood
@@ -47,6 +49,8 @@ var _body: RichTextLabel
 var _widget_box: VBoxContainer
 var _portrait: PanelContainer
 var _side: PanelContainer
+var _sheet: PanelContainer
+var _dice_tray: DiceTray
 var _gear: PanelContainer
 var _gear_grid: GridContainer
 var _gear_row: HBoxContainer
@@ -230,6 +234,10 @@ func _build_layout() -> void:
 	_side.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.94), UiStyle.C_LINE, 14))
 	_side.visible = false
 	add_child(_side)
+	_sheet = PanelContainer.new()
+	_sheet.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, BACKDROP_PANEL_ALPHA), UiStyle.C_LINE, 8))
+	_sheet.visible = false
+	add_child(_sheet)
 	_gear = PanelContainer.new()
 	_gear.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, GEAR_PANEL_ALPHA), UiStyle.C_LINE, int(GEAR_PANEL_MARGIN)))
 	_gear.position = Vector2(GEAR_LEFT, GEAR_TOP)
@@ -361,6 +369,7 @@ func _build_layout() -> void:
 ## s: {title, where, body (bbcode), opts: [{k (the option's id), label, fn, dis, hide, right}], col,
 ##     party_grid: the widget shows the party, so the party table hides,
 ##     view_note: a line under the picture,
+##     body_height, row_height: fixed heights, for a screen whose layout must not move with its contents,
 ##     input: {ph, max, fn}, moves: {pad button: Callable}, view, pad, widget: Control, map, portrait: path, side: Control}
 func show_screen(s: Dictionary) -> void:
 	_close_confirm()
@@ -369,6 +378,10 @@ func show_screen(s: Dictionary) -> void:
 	_set_portrait(s.get("portrait", ""))
 	_portrait_tomb.visible = s.get("portrait_dead", false)
 	_set_side(s.get("side"))
+	_set_sheet(s.get("sheet", Callable()))
+	if _dice_tray != null or s.get("dice", false):
+		dice_tray().visible = s.get("dice", false)
+		_place_portrait()
 	_title.text = s.get("title", "")
 	_title.visible = _title.text != ""
 	_view_note.text = s.get("view_note", "")
@@ -378,14 +391,13 @@ func show_screen(s: Dictionary) -> void:
 		_where.text = String(s["where"]).to_upper()
 	_body.text = s.get("body", "")
 	_body.visible = _body.text != ""
+	_body.custom_minimum_size.y = s.get("body_height", 0.0)
 	for n in _widget_box.get_children():
 		n.queue_free()
 	if s.has("widget"):
 		_widget_box.add_child(s["widget"])
 	# A screen with its own portrait, like Inspect, keeps that spot for it.
-	var card_place: bool = TownScreens.GEAR_PLACES.has(place_image) and s.get("portrait", "") == ""
-	# The painting stays clear until a party member is picked.
-	var gear: bool = card_place and town._selected != null
+	var gear: bool = TownScreens.GEAR_PLACES.has(place_image) and s.get("portrait", "") == "" and not s.has("sheet")
 	for n in _opts_flow.get_children() + _opts_col.get_children():
 		n.queue_free()
 	var col: bool = s.get("col", false)
@@ -393,11 +405,22 @@ func show_screen(s: Dictionary) -> void:
 	_opts_col.visible = col
 	var opts: Array = s.get("opts", [])
 	if s.has("input"):
-		opts = [{"k": "OK", "label": "OK", "fn": _submit_input}] + opts
+		opts = [{"k": "OK", "label": "SELECT", "fn": _submit_input}] + opts
+	for o in opts:
+		if o["label"] == "BACK" and not o.has("pager") and not o.get("in_widget", false):  # always small, brown and at the right
+			o["small"] = true
+			o["at"] = "right"
+	# An option with "at" (center or right) puts all of them on one row, spread across the panel.
+	var row: HBoxContainer = _spread_row(opts.any(func(o): return o.get("at", "") == "center" and not o.get("hide", false))) if opts.any(func(o): return o.has("at") and not o.get("hide", false)) else null
+	if row != null:
+		_opts_flow.visible = false
+		_opts_col.visible = true
+		row.custom_minimum_size.y = s.get("row_height", 0.0)
+		_opts_col.add_child(row)
 	for o in opts:
 		if o.has("pager"):
 			continue  # these share the row under the list
-		if o.get("hide", false) or o.get("in_widget", false) or (card_place and _is_exit(o)):
+		if o.get("hide", false) or o.get("in_widget", false) or (gear and _is_exit(o)):
 			continue  # an in_widget option has its button in the screen's widget instead, and EXIT has its own place
 		var b: Button
 		if o.get("small", false):
@@ -409,7 +432,15 @@ func show_screen(s: Dictionary) -> void:
 			b.disabled = o.get("dis", false)
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.pressed.connect(_run.bind(o))
-		(_opts_col if col else _opts_flow).add_child(b)
+			if o.has("big"):
+				b.custom_minimum_size = o["big"]
+				b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+				b.add_theme_font_size_override("font_size", BIG_BUTTON_FONT)
+		if row != null:
+			b.size_flags_vertical = Control.SIZE_SHRINK_CENTER  # a big button beside it stays the only big one
+			row.get_node(String(o.get("at", "left"))).add_child(b)
+		else:
+			(_opts_col if col else _opts_flow).add_child(b)
 	_pager_row = null
 	if opts.any(func(o): return o.has("pager")):
 		_pager_row = _pager_buttons(opts)
@@ -426,9 +457,7 @@ func show_screen(s: Dictionary) -> void:
 	else:
 		_entry.release_focus()
 	_pad.visible = s.get("pad", false)
-	_table.visible = not s.has("party_grid") and not card_place
-	_gear_grid = null
-	_gear_row = null
+	_table.visible = not s.has("party_grid") and not gear and not s.has("sheet")
 	for n in _gear.get_children():
 		n.queue_free()
 	_gear.visible = gear
@@ -447,8 +476,8 @@ func show_screen(s: Dictionary) -> void:
 		gear_box.add_child(_gear_row)
 	for n in _exit_row.get_children():
 		n.queue_free()
-	_exit_row.visible = card_place
-	if card_place:
+	_exit_row.visible = gear
+	if gear:
 		for o in opts:
 			if _is_exit(o) and not o.get("hide", false) and not o.has("pager"):
 				_exit_row.add_child(_small_button(o, PAGER_EXIT_FILL, PAGER_EXIT_EDGE))
@@ -503,7 +532,26 @@ func _gear_button(o: Dictionary) -> Button:
 	return b
 
 
-## Page buttons on the left of the row, EXIT on the right.
+## Three groups: left, center and right. The outer two share the spare room, so the center stays centered.
+func _spread_row(opts_centered: bool) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var left := HFlowContainer.new()  # the one that can hold enough buttons to need a second line
+	left.name = "left"
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(left)
+	for spec in [["center", BoxContainer.ALIGNMENT_CENTER], ["right", BoxContainer.ALIGNMENT_END]]:
+		var group := HBoxContainer.new()
+		group.name = spec[0]
+		group.alignment = spec[1]
+		group.add_theme_constant_override("separation", 6)
+		if spec[0] == "right":
+			group.size_flags_horizontal = Control.SIZE_EXPAND_FILL if opts_centered else Control.SIZE_SHRINK_END
+		row.add_child(group)
+	return row
+
+
+## Page buttons on the left of the row, the way out on the right. Only EXIT, the way back to town, is red.
 func _pager_buttons(opts: Array) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -513,10 +561,10 @@ func _pager_buttons(opts: Array) -> HBoxContainer:
 	for o in opts:
 		if not o.has("pager"):
 			continue
-		var is_exit: bool = o["pager"] == "exit"
-		var b := _small_button(o, PAGER_EXIT_FILL if is_exit else PAGER_FILL, PAGER_EXIT_EDGE if is_exit else PAGER_EDGE)
+		var red := _is_exit(o)
+		var b := _small_button(o, PAGER_EXIT_FILL if red else PAGER_FILL, PAGER_EXIT_EDGE if red else PAGER_EDGE)
 		row.add_child(b)
-		if not is_exit:
+		if o["pager"] != "exit":
 			row.move_child(b, gap.get_index())
 	return row
 
@@ -579,6 +627,34 @@ func _set_side(content: Control) -> void:
 	_place_portrait()
 
 
+## The dice beside the text panel, made the first time they are wanted.
+func dice_tray() -> DiceTray:
+	if _dice_tray == null:
+		_dice_tray = DiceTray.new()
+		_dice_tray.visible = false
+		add_child(_dice_tray)
+	return _dice_tray
+
+
+## A character sheet takes the place of the portrait and side panel. make_panel builds its contents,
+## afresh each time the screen is shown.
+func _set_sheet(make_panel: Callable) -> void:
+	for n in _sheet.get_children():
+		_sheet.remove_child(n)
+		n.queue_free()
+	_sheet.visible = make_panel.is_valid()
+	if make_panel.is_valid():
+		_sheet.add_child(make_panel.call())
+		_fit_sheet.call_deferred()
+	_place_portrait()
+
+
+## Its text wraps too, and asks for far too much height until it has been laid out at its width.
+func _fit_sheet() -> void:
+	await get_tree().process_frame
+	_sheet.reset_size()
+
+
 ## Wrapped text only knows its height once it has been laid out at its width.
 func _fit_side() -> void:
 	await get_tree().process_frame
@@ -591,7 +667,11 @@ func _place_portrait() -> void:
 	var x := r.end.x + 14 if _backdrop.visible else r.position.x - 14 - PORTRAIT_SIZE
 	_portrait.size = Vector2.ONE * PORTRAIT_SIZE
 	_portrait.global_position = Vector2(x, r.position.y)
-	_side.global_position = Vector2(x, r.position.y)
+	_side.global_position = Vector2(x, maxf(r.position.y, GEAR_TOP))  # clear of the buttons along the top
+	var sheet_x := r.end.x + 14 if _backdrop.visible else r.position.x - 14 - CharacterSheet.WIDTH - 2.0 * SHEET_MARGIN
+	_sheet.global_position = Vector2(sheet_x, maxf(r.position.y, GEAR_TOP))
+	if _dice_tray != null:
+		_dice_tray.global_position = Vector2(r.end.x + 14, r.position.y + (r.size.y - DiceTray.SIZE.y) * 0.5)
 
 
 func _opt_text(o: Dictionary) -> String:
@@ -708,26 +788,28 @@ func _close_confirm() -> void:
 
 
 ## items: [{label, fn, dis, right}] become numbered options 1..9.
-## With a pager, or in a building that shows the party's cards, the page buttons and EXIT share a smaller row under the list.
-## With switch_member, clicking a living member's card calls it with that character.
+## With a pager, or in a building that shows the party's cards, the page buttons and the way out share a smaller row under the list.
+## The way out says EXIT only when it returns to town, and BACK otherwise.
+## With switch_member, clicking a living member's card calls it with that character, and the cards say so.
 func choose_list(title: String, body: String, items: Array, back: Callable, extra: Array = [], pager: Variant = null, switch_member := Callable()) -> void:
 	var opts := []
 	for i in items.size():
 		var it: Dictionary = items[i]
 		opts.append({"k": str(i + 1), "label": it["label"], "fn": it["fn"], "dis": it.get("dis", false), "right": it.get("right", "")})
 	opts.append_array(extra)
-	var exit_opt := {"k": "L", "label": "EXIT", "fn": back}
+	var exit_opt := {"k": "L", "label": "EXIT" if back == town.castle else "BACK", "fn": back}
 	if pager != null:
 		for o in pager:
 			o["pager"] = "page"
 		opts.append_array(pager)
-	if pager != null or TownScreens.GEAR_PLACES.has(place_image):
+	if pager != null or TownScreens.GEAR_PLACES.has(place_image) or exit_opt["label"] == "BACK":
 		exit_opt["pager"] = "exit"
 	opts.append(exit_opt)
 	var s := {"title": title, "body": body, "opts": opts, "col": true}
 	if switch_member.is_valid():
 		s["gear_pick"] = switch_member
 		s["gear_skip_dead"] = true
+		s["gear_hint"] = TownScreens.SELECT_HINT
 	show_screen(s)
 
 
@@ -774,6 +856,17 @@ func render_party() -> void:
 
 
 func sheet(c: Character) -> String:
+	var t := _stat_rows(c)
+	t += "[cell][color=#9c947f]STATUS[/color] %s   [/cell][cell][color=#9c947f]MAGE[/color] %s   [/cell][cell][color=#9c947f]PRIEST[/color] %s[/cell][/table]\n" % [c.status, "/".join(c.sp["M"].map(func(v): return str(v))), "/".join(c.sp["P"].map(func(v): return str(v)))]
+	return t + item_lines(c)
+
+
+## The name line and statistics, for the character sheet panel.
+func stat_text(c: Character) -> String:
+	return _stat_rows(c) + "[/table]"
+
+
+func _stat_rows(c: Character) -> String:
 	var nx := Data.xp_needed(c.cls, c.lvl)
 	var t := "[color=#e3a33f]%s  L %d  %s-%s-%s  %s[/color]\n" % [esc(c.name), c.lvl, c.align.substr(0, 1), c.race, c.cls, c.sex.substr(0, 1)]
 	t += "[table=3]"
@@ -781,7 +874,12 @@ func sheet(c: Character) -> String:
 		t += "[cell][color=#9c947f]%s[/color] %d   [/cell]" % [Data.STAT_NAMES[st], c.stats[st]]
 	t += "[cell][color=#9c947f]GOLD[/color] %d   [/cell][cell][color=#9c947f]EXP[/color] %d   [/cell][cell][color=#9c947f]NEXT[/color] %d[/cell]" % [c.gold, c.xp, nx]
 	t += "[cell][color=#9c947f]AGE[/color] %d   [/cell][cell][color=#9c947f]HITS[/color] %d/%d   [/cell][cell][color=#9c947f]AC[/color] %d[/cell]" % [c.age / 52, c.hp, c.maxhp, c.ac()]
-	t += "[cell][color=#9c947f]STATUS[/color] %s   [/cell][cell][color=#9c947f]MAGE[/color] %s   [/cell][cell][color=#9c947f]PRIEST[/color] %s[/cell][/table]\n" % [c.status, "/".join(c.sp["M"].map(func(v): return str(v))), "/".join(c.sp["P"].map(func(v): return str(v)))]
+	return t
+
+
+## A character's items, numbered, with * for equipped, # for unusable, ? for unknown and - for cursed.
+func item_lines(c: Character) -> String:
+	var t := ""
 	if c.items.is_empty():
 		t += "[color=#9c947f]NO ITEMS[/color]"
 	for i in c.items.size():

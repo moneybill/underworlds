@@ -63,6 +63,7 @@ static func make_small_button(b: Button, fill: Color = C_BROWN, edge: Color = C_
 	for st in ["normal", "focus"]:
 		b.add_theme_stylebox_override(st, box(fill, edge, 4))
 	b.add_theme_stylebox_override("hover", box(fill.lightened(0.15), edge, 4))
+	b.add_theme_stylebox_override("disabled", box(fill.darkened(0.45), edge.darkened(0.45), 4))  # the same size as the others
 
 
 static func build_theme(mono: Font) -> Theme:

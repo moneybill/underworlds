@@ -37,6 +37,10 @@ window/stretch/aspect="expand"
 
 project/assembly_name="Underworlds Descent into Darkness"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/dice_3d/plugin.cfg")
+
 [rendering]
 
 renderer/rendering_method.mobile="gl_compatibility"
