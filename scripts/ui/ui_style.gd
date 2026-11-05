@@ -72,6 +72,7 @@ static func build_theme(mono: Font) -> Theme:
 	t.default_font_size = 22
 	t.set_color("font_color", "Label", C_INK)
 	t.set_color("default_color", "RichTextLabel", C_INK)
+	t.set_stylebox("focus", "RichTextLabel", StyleBoxEmpty.new())  # clicking text must not outline it
 	for st in ["normal", "focus"]:
 		t.set_stylebox(st, "Button", box(C_STONE2, C_LINE, 7))
 	t.set_stylebox("hover", "Button", box(C_STONE2, C_DIM, 7))

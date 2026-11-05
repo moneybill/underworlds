@@ -22,6 +22,61 @@ const RACE_TEXT := {
 	"HALF-ORC": "Half-orcs are strong and tough",
 }
 ## What each race adds to a rolled score. A statistic that isn't listed gets nothing.
+## Names by the sex they suit. Choosing a RANDOM name at creation draws on both, as the sex is chosen later.
+const MALE_NAMES := [
+	"ALDRIC", "THORNE", "GARRICK", "DARIUS", "KAELEN", "BORIN", "DRAVEN", "ELDRIC", "MAGNUS", "THERON",
+	"RODERIC", "VALEN", "CEDRIC", "TORVALD", "FENRIC", "LUCIAN", "KELLAN", "DARIAN", "ALARIC", "BROM",
+	"CORVUS", "MALRIC", "TAVIAN", "ORIN", "HADRIAN", "ZEPHYR", "KAEL", "RAGNAR", "BASTIAN", "ELDON",
+	"VARRIC", "SYLAS", "RONAN", "GARRON", "LEORIC", "DRUSTAN", "EVANDER", "CALDER", "OSRIC", "FENRIS",
+	"ARDAN", "MEREK", "TALON", "SOREN", "DAROK", "KELRIC", "VAELOR", "THALION", "MORDECAI", "BRYNJAR",
+	"ORYN", "KAEDOR", "RURIK", "ALISTAIR", "CORWIN", "JARETH", "MALAKAI", "TORREN", "EAMON", "VALRIC",
+	"ENDRIC", "DAIN", "ARIC", "VARIAN", "LORCAN", "FAELAN", "GARRUS", "TIBER", "CAELUM", "ORMUND",
+	"BAELOR", "CASSIAN", "WULFRIC", "ISKANDER", "THERIC", "DORIAN", "HALVARD", "MERRICK", "ZEVRAN", "ARVETH",
+	"KORRIN", "BELRIC", "TAVROS", "ELDRAN", "FENWICK", "MAELOR", "VORIAN", "AEMON", "DRAKAR", "SILVAN",
+	"OTHRIC", "BRYNDEN", "VEYRON", "ARCTURUS", "ROTHGAR", "JORVIK", "THADDEUS", "ZORATH",
+	"VIKTOR", "WESLEY",
+]
+const FEMALE_NAMES := [
+	"AELARA", "SERAPHINE", "ELOWEN", "MORRIGAN", "LYRA", "ISOLDE", "THALIA", "VESPER", "ARWEN", "KAELA",
+	"FREYA", "ASTRID", "SYLVARA", "EVELINE", "NYX", "VALERIA", "ISADORA", "ELIRA", "BRYNN", "MORGANA",
+	"CALISTA", "SELENE", "RHIANNON", "ALTHEA", "RAVENNA", "LIORA", "DRUSILLA", "AMARA", "FAELWEN", "YSOLDE",
+	"KESTREL", "THESSA", "ROWENA", "BELLADONNA", "SERILDA", "AVELINE", "NERISSA", "ELYSIA", "VAELA", "MIRABEL",
+	"FREYJA", "ELARA", "ISMARA", "SABLE", "TAMSIN", "CALYRA", "VEYRA", "ORIANA", "MAELIS", "ZARIA",
+	"CELESTIA", "FENELLA", "ARADIA", "LYSANDRA", "EVELARA", "THALINDRA", "KAELIS", "MORWEN", "ALIRA", "SELVARA",
+	"AZURA", "BRIELLE", "CERYS", "DELYTH", "ELARIA", "FIORA", "GALADRIEL", "HESTIA", "ILLYRIA", "JESSAMINE",
+	"KALINDRA", "LUNARA", "MELISANDE", "NERYS", "OPHELIA", "PERSEPHONE", "QUENARA", "ROSWYN", "SAPHIRA", "TALINDRA",
+	"UMBRA", "VALLERIA", "WYNORA", "XANTHE", "YAVANNA", "ZAFIRA", "ANWEN", "BRYNNA", "CORISANDE", "DAELITH",
+	"EOWYN", "FIORWYN", "GWENDOLYN", "HALIA", "IRIDESSA", "JYNARA", "KALLISTA", "LIRIEN", "MYRANDA", "ZEPHYRA",
+]
+const CHARACTER_NAMES := MALE_NAMES + FEMALE_NAMES  # first names
+const LAST_NAMES := [
+	"ASHFORD", "BLACKTHORN", "STORMBORN", "IRONWOOD", "RAVENSHADE", "THORNFIELD", "SILVERBROOK", "GRIMWALD", "WINTERMERE",
+	"GOLDCREST", "DARKWATER", "WOLFSBANE", "EMBERFALL", "STONEHELM", "NIGHTINGALE", "FROSTBANE", "RAVENCREST", "OAKENSHIELD",
+	"BRIGHTBLADE", "SHADOWMERE", "BLOODWORTH", "STORMVALE", "IRONHEART", "DUSKWALKER", "THORNWALL", "MOONSHADOW", "FIREBRAND",
+	"BLACKWATER", "SILVERTHORN", "GRIMSTONE", "WILDMERE", "ASHENFORD", "GOLDHAVEN", "WINTERBORN", "REDWYNE", "NIGHTSHADE",
+	"STORMBREAKER", "FLINTLOCK", "DARKMOOR", "RAVENWOOD", "EMBERSTONE", "FROSTFALL", "HIGHCASTLE", "WOLFSHEAR", "THORNBROOK",
+	"STEELHEART", "DUSKRUNNER", "BRIGHTWATER", "SHADOWBROOK", "IRONVALE", "CROWHURST", "BLACKWELL", "SILVERWIND", "ASHENVALE",
+	"BLOODMOON", "STONEBRIDGE", "WINTERCREST", "GOLDTHORN", "FIRESTONE", "RAVENHALL", "GRIMSHAW", "OAKHEART", "STORMWATCH",
+	"DARKHAVEN", "THORNCREST", "FROSTWOOD", "EMBERWYN", "BLACKSTONE", "MOONCREST", "IRONFORGE", "SILVERMERE", "WOLFHEART",
+	"ASHBOURNE", "NIGHTBROOK", "REDTHORN", "SHADOWFALL", "BRIGHTFORGE", "STONEWARD", "RAVENSCAR", "GOLDWATER", "GRIMLOCK",
+	"WINTERHALL", "BLOODSTONE", "STORMHOLD", "FROSTHOLM", "EMBERWOOD", "THORNMERE", "IRONCLAD", "DARKTHORN", "SILVERKEEP",
+	"ASHWALKER", "RAVENMARK", "WOLFCREST", "MOONVALE", "STEELBROOK", "FIRECREST", "STONEFALL", "NIGHTWIND", "STORMRIDER",
+	"STORMREAVER", "DREADMOOR", "ASHENBLADE", "RAVENHART", "IRONBANE", "SHADOWFANG", "BLOODRAVEN", "GRIMSHADOW", "FROSTBORN",
+	"NIGHTREIGN", "SILVERFANG", "THORNBLOOD", "DUSKBANE", "BLACKFYRE", "IRONVEIL", "VEXMOOR", "RAVENSTORM", "GRIMWARD",
+	"SHADOWBORN", "FROSTVEIL", "BLOODTHORN", "NIGHTFALL", "STEELGRAVE", "CROWBANE", "DARKWHISPER", "THORNWICK", "BLACKMOOR",
+	"SILVERVEIN", "WRAITHWOOD", "EMBERHEART", "DREADWIND", "GRIMFANG", "STORMCREST", "IRONCLAW", "FROSTGRAVE", "THORNBREAKER",
+	"BLACKHOLLOW", "STEELTHORN", "WOLFHART", "EMBERSTORM", "DARKBANE", "STORMFANG", "NIGHTREAVER", "SHADOWCREST", "THORNVALE",
+	"BLACKRIDGE", "DREADFANG", "FIRESTORM", "MOONVEIL", "GRIMHOLT", "ASHENFALL", "IRONMARK", "SILVERBLADE", "BLOODREIGN",
+	"SHADOWEND", "THORNHELM", "EMBERGRAVE", "GRIMVALE", "ASHENVEIL", "RAVENFALL", "DREADSTONE", "BLACKSPIRE", "STEELWIND",
+	"THORNSHADOW", "BLOODFANG", "EVERDARK",
+]
+## Titles for later: nothing uses them yet.
+const MALE_TITLES := ["SIR", "LORD", "DUKE", "BARON", "MARQUIS"]
+const FEMALE_TITLES := ["LADY", "DUCHESS", "DAME", "BARONESS", "MARQUESS"]
+const LAST_NAME_CHANCE := 50  # percent of random names, for characters and mercenaries, that have a last name
+const MAX_NAME := 24  # room for the longest first and last name together
+const ALIGNMENTS := ["GOOD", "NEUTRAL", "EVIL"]
+const RACE_ALIGNMENTS := {"HALF-ORC": ["NEUTRAL", "EVIL"]}  # a race not listed can be any of them
 const RACE_BONUS := {
 	"HUMAN": {"str": 1, "iq": 1, "pie": 1, "vit": 1, "agi": 1, "luk": 1},
 	"ELF": {"iq": 2, "agi": 2},
@@ -41,7 +96,7 @@ const STAT_INFO := {
 }
 const ALIGNS := ["GOOD", "NEUTRAL", "EVIL"]
 ## How many portraits a new character can choose from, by sex: assets/images/portraits/male_1.webp and on.
-const PORTRAIT_COUNTS := {"MALE": 56, "FEMALE": 54}
+const PORTRAIT_COUNTS := {"MALE": 59, "FEMALE": 58}
 
 ## al: allowed alignment initials. M / P: [first character level that learns that school, levels per extra spell level].
 const CLASSES := {
@@ -136,7 +191,7 @@ const ITEMS := {
 	"cusinart": {"name": "BLADE CUSINART", "unk": "SWORD", "slot": "W", "cls": "FSLN", "price": 15000, "dmg": "1d12+4", "hit": 3},
 	"amulet":   {"name": "WERDNA'S AMULET", "unk": "AMULET", "slot": "R", "cls": ALL_CLASSES, "price": 0, "quest": true},
 }
-## Boltac's opening stock. -1 means he never runs out.
+## The Broken Anvil's opening stock. -1 means he never runs out.
 const SHOP_START := {"dagger": -1, "staff": -1, "ssword": -1, "lsword": -1, "mace": -1, "flail": 3, "robes": -1,
 	"leather": -1, "chain": -1, "breast": 4, "plate": 2, "sshield": -1, "lshield": -1, "helm": 4, "pdios": 6, "plato": 3, "skatino": 2}
 const LOOT := [[],
@@ -197,8 +252,12 @@ const GRAFFITI := [[],
 	["WRITTEN IN SOOT: \"THE FLOOR TURNS UNDER YOUR FEET.\"", "A WARNING: \"HE WAITS BELOW THE FOURTH STAIR.\""],
 	["LETTERS OF FIRE: \"WERDNA SLEEPS WHERE THE MAZE ENDS.\"", "A CLAW-MARKED SIGN: \"NO ONE RUNS FROM THE ARCHMAGE.\""],
 ]
-## Adventurer's Inn rooms: [name, hit points per week, gold per week]
-const ROOMS := [["STABLES", 0, 0], ["BARRACKS", 1, 10], ["DOUBLE OCCUPANCY", 3, 50], ["PRIVATE ROOM", 7, 200], ["ROYAL SUITE", 10, 500]]
+## The Drunken Slumber rooms: [name, hit points per week, gold per week]
+const ROOMS := [["STABLES", 0, 0], ["COMMON ROOM", 1, 10], ["SHARED ROOM", 3, 50], ["PRIVATE ROOM", 7, 200], ["KING'S SUITE", 10, 500]]
+
+
+func alignments_for(race: String) -> Array:
+	return RACE_ALIGNMENTS.get(race, ALIGNMENTS)
 
 
 func spells_at(school: String, lvl: int) -> Array:

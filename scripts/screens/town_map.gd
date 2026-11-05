@@ -10,29 +10,31 @@ const ASPECT := 16.0 / 9.0
 const CANVAS := Vector2(2000, 1116)  # the coordinate space of SPOTS, whatever the image's real size
 const PLATE_FONT := 18
 const PANEL_FONT := 16
-const PANEL_MARGIN := 22.0  # keeps the corner panels inside the painted frame
+const PANEL_MARGIN := 3.0  # between the corner panels and the window's edges
 const PARTY_PORTRAIT := 36.0
-const INFO_SIZE := Vector2(370, 76)
+const PARTY_CLOSE_ARROW := "res://assets/images/arrow_up.svg"
+const PARTY_OPEN_ARROW := "res://assets/images/arrow_down.svg"
+const PARTY_ARROW_SIZE := 14
+const INFO_SIZE := Vector2(500, 85)  # five lines tall, so it doesn't jump between buildings; a longer text makes it taller
 ## From the Vefects pack, which its licence keeps out of the public repository, so it may be missing.
 ## Without it the painted campfire shows on its own.
 const FIRE_SCENE := "res://Vefects/Free Fire VFX/Particles/VFX_Fire_01_Small_Simple.tscn"
-const FIRE_BASE := Vector2(1219, 380)  # the middle of the fire ring, in SPOTS coordinates
-const FIRE_WINDOW := Vector2(160, 160)  # the size of the window the fire burns in, in SPOTS coordinates
-const TORCH_BASE := Vector2(1731, 206)  # the torch in the Maze's doorway
-const TORCH_WINDOW := Vector2(70, 70)  # the smaller the window, the smaller the fire
-const FIRE_BASE_HEIGHT := 0.15  # of the window, from its bottom edge
+const FIRE_BASE := Vector2(1235, 365)  # the middle of the fire ring, in SPOTS coordinates
+const FIRE_WINDOW := Vector2(173, 173)  # the size of the window the fire burns in, in SPOTS coordinates
+const TORCH_BASE := Vector2(1788, 177)  # the torch in the Maze's doorway
+const TORCH_WINDOW := Vector2(76, 76)  # the smaller the window, the smaller the fire
 const FIRE_VIEW_SIZE := 3.0  # the height of the window in the 3D world of the pack's fire
 const FIRE_SPEED := 0.25  # of the pack's speed, which looks frantic at this scale
 
 ## Keyed by option id. poly outlines the building; plate is the center of its name plate.
 const SPOTS := {
-	"T": {"plate": Vector2(530, 556), "poly": [Vector2(322, 330), Vector2(350, 200), Vector2(365, 155), Vector2(385, 165), Vector2(448, 160), Vector2(462, 105), Vector2(480, 190), Vector2(640, 250), Vector2(672, 140), Vector2(710, 300), Vector2(722, 450), Vector2(640, 520), Vector2(560, 545), Vector2(440, 480), Vector2(335, 440)]},
-	"A": {"plate": Vector2(885, 336), "poly": [Vector2(775, 200), Vector2(880, 130), Vector2(945, 82), Vector2(1003, 180), Vector2(1000, 240), Vector2(985, 290), Vector2(890, 322), Vector2(790, 290), Vector2(772, 250)]},
-	"G": {"plate": Vector2(530, 932), "poly": [Vector2(358, 765), Vector2(415, 680), Vector2(412, 630), Vector2(455, 640), Vector2(460, 600), Vector2(495, 605), Vector2(590, 595), Vector2(650, 680), Vector2(690, 745), Vector2(725, 790), Vector2(690, 830), Vector2(660, 850), Vector2(560, 890), Vector2(470, 920), Vector2(375, 870)]},
-	"B": {"plate": Vector2(1330, 1014), "poly": [Vector2(1150, 830), Vector2(1290, 760), Vector2(1300, 735), Vector2(1340, 730), Vector2(1350, 770), Vector2(1490, 850), Vector2(1530, 890), Vector2(1510, 950), Vector2(1390, 990), Vector2(1300, 1000), Vector2(1200, 990), Vector2(1150, 900)]},
-	"R": {"plate": Vector2(1457, 672), "poly": [Vector2(1355, 620), Vector2(1370, 550), Vector2(1510, 430), Vector2(1700, 480), Vector2(1800, 470), Vector2(1920, 560), Vector2(1900, 640), Vector2(1830, 710), Vector2(1720, 760), Vector2(1570, 820), Vector2(1480, 770), Vector2(1380, 700)]},
-	"M": {"plate": Vector2(1755, 305), "poly": [Vector2(1630, 190), Vector2(1690, 110), Vector2(1780, 50), Vector2(1830, 70), Vector2(1880, 190), Vector2(1840, 280), Vector2(1780, 290), Vector2(1700, 290), Vector2(1660, 240)]},
-	"E": {"plate": Vector2(1000, 1062), "poly": [Vector2(865, 1010), Vector2(900, 965), Vector2(940, 1025), Vector2(1060, 1025), Vector2(1100, 965), Vector2(1135, 1010), Vector2(1130, 1095), Vector2(870, 1095)]},
+	"T": {"plate": Vector2(491, 555), "poly": [Vector2(266, 311), Vector2(296, 170), Vector2(313, 122), Vector2(334, 133), Vector2(402, 127), Vector2(417, 68), Vector2(437, 160), Vector2(610, 224), Vector2(644, 106), Vector2(685, 278), Vector2(698, 440), Vector2(610, 516), Vector2(523, 543), Vector2(394, 473), Vector2(280, 430)]},
+	"A": {"plate": Vector2(916, 291), "poly": [Vector2(756, 170), Vector2(869, 95), Vector2(939, 43), Vector2(1002, 149), Vector2(999, 214), Vector2(982, 268), Vector2(880, 302), Vector2(772, 268), Vector2(752, 224)]},
+	"G": {"plate": Vector2(491, 922), "poly": [Vector2(305, 781), Vector2(367, 689), Vector2(363, 635), Vector2(410, 646), Vector2(415, 602), Vector2(453, 608), Vector2(556, 597), Vector2(621, 689), Vector2(664, 759), Vector2(702, 808), Vector2(664, 851), Vector2(631, 872), Vector2(523, 916), Vector2(426, 948), Vector2(323, 894)]},
+	"B": {"plate": Vector2(1355, 1050), "poly": [Vector2(1161, 851), Vector2(1312, 775), Vector2(1323, 748), Vector2(1366, 743), Vector2(1377, 786), Vector2(1528, 872), Vector2(1571, 916), Vector2(1550, 980), Vector2(1420, 1024), Vector2(1323, 1034), Vector2(1215, 1024), Vector2(1161, 926)]},
+	"R": {"plate": Vector2(1492, 680), "poly": [Vector2(1382, 624), Vector2(1398, 548), Vector2(1550, 419), Vector2(1755, 473), Vector2(1863, 462), Vector2(1993, 559), Vector2(1971, 646), Vector2(1895, 721), Vector2(1777, 775), Vector2(1614, 840), Vector2(1517, 786), Vector2(1409, 710)]},
+	"M": {"plate": Vector2(1814, 284), "poly": [Vector2(1679, 160), Vector2(1744, 73), Vector2(1841, 8), Vector2(1895, 30), Vector2(1949, 160), Vector2(1906, 257), Vector2(1841, 268), Vector2(1755, 268), Vector2(1712, 214)]},
+	"E": {"plate": Vector2(999, 1092), "poly": [Vector2(853, 1045), Vector2(891, 997), Vector2(934, 1061), Vector2(1063, 1061), Vector2(1107, 997), Vector2(1145, 1045), Vector2(1139, 1116), Vector2(858, 1116)]},
 }
 
 var ui
@@ -44,8 +46,10 @@ var _info: RichTextLabel
 var _info_panel: PanelContainer
 var _party: GridContainer
 var _party_panel: PanelContainer
-var _fire_window: SubViewportContainer
-var _torch_window: SubViewportContainer
+var _party_toggle: Button
+var _party_closed := false  # stays as the player left it while the game runs
+var _fire_window: FireWindow
+var _torch_window: FireWindow
 var _smoke: MapSmoke
 var _mist: MapSmoke
 var _forges: ForgeGlow
@@ -60,8 +64,11 @@ func _init(root) -> void:
 	resized.connect(queue_redraw)
 	resized.connect(_place_panels)
 	resized.connect(_place_fires)
-	_fire_window = _add_fire_window()
-	_torch_window = _add_fire_window()
+	_fire_window = FireWindow.make(FIRE_SCENE, FIRE_VIEW_SIZE, FIRE_SPEED)
+	_torch_window = FireWindow.make(FIRE_SCENE, FIRE_VIEW_SIZE, FIRE_SPEED)
+	for window in [_fire_window, _torch_window]:
+		if window != null:
+			add_child(window)
 	_mist = MapSmoke.new(self, MapSmoke.MAZE_MIST)
 	add_child(_mist)
 	_smoke = MapSmoke.new(self, MapSmoke.CHIMNEY)
@@ -74,44 +81,29 @@ func _init(root) -> void:
 	_party.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_party.add_theme_constant_override("h_separation", 12)
 	_party.add_theme_constant_override("v_separation", 3)
-	_party_panel.add_child(_party)
+	var party_col := VBoxContainer.new()
+	party_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	party_col.add_theme_constant_override("separation", 8)
+	_party_panel.add_child(party_col)
+	party_col.add_child(_party)
+	_party_toggle = Button.new()
+	_party_toggle.add_theme_constant_override("icon_max_width", PARTY_ARROW_SIZE)
+	_party_toggle.focus_mode = Control.FOCUS_NONE
+	_party_toggle.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	UiStyle.make_small_button(_party_toggle)
+	_party_toggle.pressed.connect(_toggle_party_list)
+	party_col.add_child(_party_toggle)
 	_info_panel = _corner_panel()
-	_info_panel.custom_minimum_size = INFO_SIZE
+	_info_panel.minimum_size_changed.connect(_place_panels, CONNECT_DEFERRED)
 	_info = RichTextLabel.new()
 	_info.bbcode_enabled = true
 	_info.scroll_active = false
+	_info.fit_content = true
+	_info.custom_minimum_size = INFO_SIZE
 	_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_info.add_theme_font_size_override("normal_font_size", PANEL_FONT)
 	_info.add_theme_font_size_override("italics_font_size", PANEL_FONT)
 	_info_panel.add_child(_info)
-
-
-## The pack's fire is 3D, so each one burns in a small see-through window of its own over the painting.
-func _add_fire_window() -> SubViewportContainer:
-	if not ResourceLoader.exists(FIRE_SCENE):
-		return null
-	var window := SubViewportContainer.new()
-	window.stretch = true
-	window.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(window)
-	var view := SubViewport.new()
-	view.own_world_3d = true
-	view.transparent_bg = true
-	view.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
-	window.add_child(view)
-	var camera := Camera3D.new()
-	camera.projection = Camera3D.PROJECTION_ORTHOGONAL
-	camera.size = FIRE_VIEW_SIZE
-	camera.position = Vector3(0, FIRE_VIEW_SIZE * (0.5 - FIRE_BASE_HEIGHT), 5)
-	view.add_child(camera)
-	var fire: Node3D = (load(FIRE_SCENE) as PackedScene).instantiate()
-	for part in fire.get_children():
-		if part is AudioStreamPlayer3D or "intensity_multiplier" in part:  # silent, and nothing here to light
-			part.free()
-	for flames in fire.find_children("*", "GPUParticles3D", true, false):
-		flames.speed_scale = FIRE_SPEED
-	view.add_child(fire)
-	return window
 
 
 func _place_fires() -> void:
@@ -119,12 +111,9 @@ func _place_fires() -> void:
 	_place_fire(_torch_window, TORCH_BASE, TORCH_WINDOW)
 
 
-func _place_fire(window: SubViewportContainer, base: Vector2, canvas_size: Vector2) -> void:
-	if window == null:
-		return
-	var box := canvas_size * _map_rect().size / CANVAS
-	window.size = box
-	window.position = view_point(base) - Vector2(box.x * 0.5, box.y * (1.0 - FIRE_BASE_HEIGHT))
+func _place_fire(window: FireWindow, base: Vector2, canvas_size: Vector2) -> void:
+	if window != null:
+		window.place(view_point(base), canvas_size * _map_rect().size / CANVAS)
 
 
 ## A dark panel over the painting that lets clicks through to the buildings beneath.
@@ -136,12 +125,13 @@ func _corner_panel() -> PanelContainer:
 	return p
 
 
-## The party sits on the open field at the top left, the text on the bottom left.
+## The party sits in the top left corner, the text in the bottom left.
 func _place_panels() -> void:
 	var r := _map_rect()
 	_party_panel.reset_size()
 	_party_panel.position = r.position + Vector2.ONE * PANEL_MARGIN
-	_info_panel.position = Vector2(r.position.x + PANEL_MARGIN, r.end.y - PANEL_MARGIN - INFO_SIZE.y)
+	_info_panel.reset_size()
+	_info_panel.position = Vector2(r.position.x + PANEL_MARGIN, r.end.y - PANEL_MARGIN - _info_panel.size.y)
 
 
 ## Called by the menu system each time a screen with `"map": true` is shown.
@@ -206,11 +196,30 @@ func _refresh_info() -> void:
 		return
 	var o: Dictionary = _opts[_hover]
 	_info.text = "[color=#e3a33f]%s[/color]" % ui.esc(ui._opt_text(o))
+	if o.has("about"):
+		_info.text += "\n" + ui.flav(ui.esc(o["about"]))
 	if o.get("dis", false):
 		_info.text += "\n[color=#d6563f]%s[/color]" % ui.esc(o.get("why", ""))
 
 
+## Closes the party list down to its button, or opens it again.
+func _toggle_party_list() -> void:
+	_party_closed = not _party_closed
+	_show_party_list()
+	_place_panels.call_deferred()
+
+
+## With no party there is nothing to close, so "no party formed" always shows, with no button.
+func _show_party_list() -> void:
+	var has_party := not Game.party_chars().is_empty()
+	_party.visible = not (has_party and _party_closed)
+	_party_toggle.visible = has_party
+	_party_toggle.text = "OPEN PARTY LIST" if _party_closed else "CLOSE PARTY LIST"
+	_party_toggle.icon = load(PARTY_OPEN_ARROW if _party_closed else PARTY_CLOSE_ARROW)
+
+
 func _refresh_party() -> void:
+	_show_party_list()
 	for n in _party.get_children():
 		_party.remove_child(n)
 		n.queue_free()

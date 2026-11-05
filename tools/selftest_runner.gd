@@ -28,6 +28,7 @@ func press(k: String) -> bool:
 
 func run() -> int:
 	seed(20261101)
+	MazeView.instant_fades = true  # leaving camp fades; only its own test waits for it
 	var last := []
 	get_node("/root/Game").logged.connect(func(t, _k): last.append(t); if last.size() > 25: last.pop_front())
 	var g = get_node("/root/Game")
@@ -71,9 +72,55 @@ func run() -> int:
 	check(not main.dice_tray().visible, "the dice leave with the screen")
 	main.chars.create_name()
 	main._entry.text = "buttoned"
-	check(_row_labels("left") == ["SELECT"] and _row_labels("right") == ["BACK"], "the name screen has SELECT, and BACK at the right")
+	check(_row_labels("left") == ["SELECT", "RANDOM"] and _row_labels("right") == ["BACK"], "the name screen has SELECT and RANDOM, and BACK at the right")
+	check(Data.MALE_NAMES.size() == 100 and Data.MALE_NAMES.has("WESLEY") and Data.MALE_NAMES.has("ALDRIC") and not Data.MALE_NAMES.has("AELARA"), "the male names are marked")
+	check(Data.FEMALE_NAMES.size() == 100 and Data.FEMALE_NAMES.has("AELARA") and not Data.FEMALE_NAMES.has("ALDRIC"), "and so are the female ones")
+	check(Data.CHARACTER_NAMES.size() == 200 and Data.CHARACTER_NAMES.has("ALDRIC") and Data.CHARACTER_NAMES.has("AELARA") and Data.CHARACTER_NAMES.all(func(n): return n == n.to_upper() and n.length() <= 15 and Data.CHARACTER_NAMES.count(n) == 1), "the names fit the entry, in capitals, with no repeats")
+	check(Data.LAST_NAMES.size() == 165 and Data.LAST_NAMES.count("BLACKTHORN") == 1 and Data.LAST_NAMES.count("WOLFSBANE") == 1 and Data.LAST_NAMES.has("EVERDARK"), "the last names have their duplicates removed")
+	check(Data.LAST_NAMES.all(func(n): return n == n.to_upper() and Data.LAST_NAMES.count(n) == 1), "all of them")
+	check(Data.MALE_TITLES == ["SIR", "LORD", "DUKE", "BARON", "MARQUIS"] and Data.FEMALE_TITLES == ["LADY", "DUCHESS", "DAME", "BARONESS", "MARQUESS"], "the titles are kept for later")
+	var name_longest := 0
+	for name_first in Data.CHARACTER_NAMES:
+		name_longest = maxi(name_longest, name_first.length())
+	var name_longest_last := 0
+	for name_last in Data.LAST_NAMES:
+		name_longest_last = maxi(name_longest_last, name_last.length())
+	check(name_longest + 1 + name_longest_last <= Data.MAX_NAME and main._entry.max_length == Data.MAX_NAME, "the box has room for the longest pair")
+	var fit_mono: Font = UiStyle.mono_font()
+	var fit_long := "BELLADONNA THORNBREAKER"
+	var fit_card: int = PartyCards.fit_font(fit_long, PartyCards.NAME_ROOM, PartyCards.FONT_SIZE)
+	check(fit_card < PartyCards.FONT_SIZE and fit_mono.get_string_size(fit_long, HORIZONTAL_ALIGNMENT_LEFT, -1, fit_card).x <= PartyCards.NAME_ROOM, "a long name shrinks to fit a party card")
+	var fit_roster: int = PartyCards.fit_font(fit_long, main.chars.ROSTER_CARD_WIDTH, main.chars.ROSTER_FONT)
+	check(fit_mono.get_string_size(fit_long, HORIZONTAL_ALIGNMENT_LEFT, -1, fit_roster).x <= main.chars.ROSTER_CARD_WIDTH, "and a roster card")
+	check(PartyCards.fit_font("FAY", PartyCards.NAME_ROOM, PartyCards.FONT_SIZE) == PartyCards.FONT_SIZE, "a short one keeps its size")
+	var name_seen := {}
+	var name_ok := true
+	var name_alone := 0
+	var name_title: String = main.scr["title"]
+	for name_try in 300:
+		var name_before: String = main._entry.text
+		press("R")
+		var name_parts: PackedStringArray = main._entry.text.split(" ")
+		name_seen[main._entry.text] = true
+		name_ok = name_ok and name_parts.size() <= 2 and Data.CHARACTER_NAMES.has(name_parts[0]) and (name_parts.size() == 1 or Data.LAST_NAMES.has(name_parts[1])) and main._entry.text != name_before
+		name_alone += 1 if name_parts.size() == 1 else 0
+		name_ok = name_ok and not name_parts[0] in Data.MALE_TITLES and not name_parts[0] in Data.FEMALE_TITLES
+	check(name_ok and name_seen.size() > 200 and main.scr["title"] == name_title, "RANDOM fills in a name, different each time, and stays on the screen")
+	check(name_alone > 100 and name_alone < 200, "about half of them have no last name (%d of 300)" % name_alone)
+	var name_taken: Character = g.make_char(main._entry.text, "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER")
+	check(g.roster.any(func(o): return o.name == main._entry.text), "the box's name is on the roster")
+	press("R")
+	check(main._entry.text != name_taken.name, "and a name on the roster isn't offered")
+	main.set_input_text("CUSTOM")
+	check(main._entry.text == "CUSTOM", "the box can still be typed over")
+	g.roster.erase(name_taken)
+	press("R")
+	main._submit_input()
+	check(main.scr["title"] != name_title, "SELECT accepts the random name")
+	main.chars.create_name()
+	main._entry.text = "buttoned"
 	check(_row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "BACK is brown")
-	check(main.scr["opts"][0]["fn"] == main.chars.training, "and goes back to the Training Grounds")
+	check(main.scr["opts"][-1]["label"] == "BACK" and main.scr["opts"][-1]["fn"] == main.chars.training, "and goes back to the Proving Grounds")
 	_row_button("left", 0).pressed.emit()
 	check(main.scr["title"] == "BUTTONED: choose a race", "the SELECT button submits typed text")
 	check(main.scr["body"] == "Select a race to see bonus stats:", "the race screen asks for a race")
@@ -86,7 +133,7 @@ func run() -> int:
 	main.town.tavern()
 	main.town.select_member(g.party_chars()[0])
 	press("I")
-	check(main.scr["title"] == "Inspect", "inspect from the tavern")
+	check(main.scr["title"] == "Character Sheet", "inspect from the tavern")
 	press("L")
 	main.town.shop(party[0])
 	press("B")
@@ -143,7 +190,7 @@ func run() -> int:
 	press("1")
 	check(main._backdrop.visible, "the tithe question keeps the painting")
 	press("1")  # payer
-	check(main.scr["title"] == "Temple of Cant", "temple tithe resolves (bind order)")
+	check(main.scr["title"] == "Cathedral of Rebirth", "temple tithe resolves (bind order)")
 	check(main._backdrop.visible, "the temple's answer keeps the painting")
 	press("Enter")
 	press("L")
@@ -179,22 +226,25 @@ func run() -> int:
 	var hint_label: Label = main._gear_grid.get_parent().get_child(0)
 	check(hint_label.text == "Click a party member to select them." and hint_label.get_theme_font_size("font_size") == 18, "the hint tops the cards, four sizes smaller")
 	check(exit_button.call().get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL and exit_button.call().get_theme_font_size("font_size") < 22, "the main screen's EXIT is small and red")
-	check(main._exit_row.get_parent() == main._body.get_parent() and main._exit_row.get_index() > main._body.get_index() and main._exit_row.get_index() < main._log.get_index(), "EXIT sits under the text, above the log")
+	check(main._exit_row.get_parent() == main._body.get_parent() and main._exit_row.get_index() > main._body.get_index(), "EXIT sits under the text")
 	var tavern_cell: Control = main._gear_grid.get_child(0)
 	var tavern_hit: Button = tavern_cell.get_child(1)
 	tavern_hit.pressed.emit()
-	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card selects that member")
+	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == PartyCards.SELECTED_EDGE, "clicking a card selects that member")
+	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_width_top == PartyCards.SELECTED_WIDTH and main._gear_grid.get_child(1).get_theme_stylebox("panel").border_width_top == 1, "the selected card's edge is much heavier than the others'")
+	check(main._gear_grid.get_child(0).get_combined_minimum_size().y == main._gear_grid.get_child(1).get_combined_minimum_size().y, "and it stays the same size")
 	var tavern_row: Control = main._gear_row
 	check(tavern_button.call("ADD").get_parent() == tavern_row.get_child(0) and tavern_button.call("ADD").get_index() == 0 and tavern_button.call("DROP").get_index() == 1, "DROP sits right of ADD")
 	check(tavern_button.call("DIVVY GOLD").get_parent() == tavern_row.get_child(1), "DIVVY GOLD sits in the center")
-	for brown_label in ["ADD", "DROP", "DIVVY GOLD", "INSPECT"]:
+	check(tavern_button.call("ADD").get_theme_stylebox("normal").bg_color == UiStyle.C_STONE2, "ADD is blue")
+	for brown_label in ["DROP", "DIVVY GOLD", "INSPECT"]:
 		var brown: Button = tavern_button.call(brown_label)
 		check(brown.get_theme_stylebox("normal").bg_color == main.PAGER_FILL and brown.get_theme_font_size("font_size") == main.PAGER_FONT, "the Tavern's %s is small and brown" % brown_label)
 	check(tavern_button.call("INSPECT").get_parent() == tavern_row.get_child(2), "INSPECT sits at the far right")
 	tavern_button.call("INSPECT").pressed.emit()
-	check(main.scr["title"] == "Inspect" and main._sheet.visible and main._sheet.find_child("Stats", true, false).text.contains(tavern_first.name), "INSPECT opens the selected member's sheet")
+	check(main.scr["title"] == "Character Sheet" and main._sheet.visible and main._sheet.find_child("Stats", true, false).text.contains(tavern_first.name), "INSPECT opens the selected member's sheet")
 	press("L")
-	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "the selection survives inspecting")
+	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == PartyCards.SELECTED_EDGE, "the selection survives inspecting")
 	tavern_button.call("DROP").pressed.emit()
 	check(not g.party.has(tavern_first.id) and g.party.size() == tavern_few.size() - 1, "DROP takes the selected member out of the party")
 	check(tavern_button.call("DROP") == null and tavern_button.call("INSPECT") == null, "removing clears the selection")
@@ -207,12 +257,12 @@ func run() -> int:
 	main.town.tavern()
 	check(tavern_button.call("DROP") == null, "leaving the tavern clears the selection")
 	main.town.boltac()
-	check(main.scr["body"].contains("cedar shavings"), "Boltac's has its description")
+	check(main.scr["body"].contains("rhythmic clang"), "Boltac's has its description")
 	check(tavern_labels.call().is_empty() and exit_button.call().text == "EXIT", "Boltac's lists no names and has EXIT in the left panel")
 	check(not main.scr["body"].contains("Click a party member") and main._gear_grid.get_parent().get_child(0).text == "Click a party member to select them.", "Boltac's hint tops the cards too")
 	check(tavern_button.call("BUY") == null and tavern_button.call("POOL GOLD") == null, "nobody selected at Boltac's, no shop buttons")
 	main._gear_grid.get_child(1).get_child(1).pressed.emit()
-	check(main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card at Boltac's selects that member")
+	check(main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == PartyCards.SELECTED_EDGE, "clicking a card at Boltac's selects that member")
 	check(tavern_labels.call().is_empty() and tavern_button.call("BUY") != null and tavern_button.call("SELL") != null and tavern_button.call("POOL GOLD") != null, "selecting at Boltac's offers the shop under the cards")
 	for shop_label in ["BUY", "SELL", "POOL GOLD"]:
 		var shop_button: Button = tavern_button.call(shop_label)
@@ -233,7 +283,7 @@ func run() -> int:
 	main.town.shop(fee_hero)
 	check(not main.scr["body"].contains(" HAS ") and not main.scr["body"].contains("ITEMS "), "Boltac's left panel doesn't repeat the member's gold and items")
 	press("B")
-	check(main.scr["title"] == "Buy" and main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "the buyer stays highlighted while buying")
+	check(main.scr["title"] == "Buy" and main._gear_grid.get_child(1).get_theme_stylebox("panel").border_color == PartyCards.SELECTED_EDGE, "the buyer stays highlighted while buying")
 	var switch_from: Character = g.party_chars()[1]
 	var switch_to: Character = g.party_chars()[2]
 	main.town.buy(switch_from, 1)
@@ -241,7 +291,7 @@ func run() -> int:
 	check(main._gear_grid.get_parent().get_child(0).text == TownScreens.SELECT_HINT, "the hint stays up while buying")
 	check(main.scr["opts"][-1]["label"] == "BACK" and main._pager_row.get_child(-1).text == "BACK", "Buy leaves by BACK")
 	main._gear_grid.get_child(2).get_child(1).pressed.emit()
-	check(main.town._selected == switch_to and main.scr["title"] == "Buy" and main._gear_grid.get_child(2).get_theme_stylebox("panel").border_color == UiStyle.C_TORCH, "clicking a card switches the buyer and stays on Buy")
+	check(main.town._selected == switch_to and main.scr["title"] == "Buy" and main._gear_grid.get_child(2).get_theme_stylebox("panel").border_color == PartyCards.SELECTED_EDGE, "clicking a card switches the buyer and stays on Buy")
 	check(main._pager_row.get_child(0).text == "PREVIOUS", "switching the buyer keeps the page")
 	var switch_status: String = switch_to.status
 	switch_to.status = "DEAD"
@@ -277,7 +327,7 @@ func run() -> int:
 	check(pager_labels.call().slice(0, 2) == ["PREVIOUS", "NEXT"] or pager_labels.call() == ["PREVIOUS", "BACK"], "later pages offer PREVIOUS first")
 	press("B")
 	press("L")
-	check(main.scr["title"] == "Boltac's Trading Post" and tavern_button.call("BUY") != null, "leaving Buy returns to the shop with the member still selected")
+	check(main.scr["title"] == "The Broken Anvil" and tavern_button.call("BUY") != null, "leaving Buy returns to the shop with the member still selected")
 	main.town.castle()
 	main.town.boltac()
 	check(tavern_button.call("BUY") == null, "coming back to Boltac's starts with nobody selected")
@@ -294,12 +344,26 @@ func run() -> int:
 	g.party.assign(tavern_party)
 	main.town.select_member(tavern_first)
 	press("I")
-	check(main.scr["title"] == "Inspect" and main._backdrop.texture == tavern_art, "inspecting keeps the tavern painting")
+	check(main.scr["title"] == "Character Sheet" and main._backdrop.texture == tavern_art, "inspecting keeps the tavern painting")
 	var inspect_hero: Character = g.party_chars()[0]
 	var inspect_keep: String = inspect_hero.portrait
 	inspect_hero.portrait = "female_1"
 	main.chars.inspect(inspect_hero, "tavern", main.town.tavern)
-	check(not main._gear.visible and not main._portrait.visible and main._sheet.visible, "inspecting gives the grid's place to the character sheet")
+	check(main._gear.visible and main._sheet.visible and main._popup_block.visible, "inspecting opens a window over the screen it was called from, which stays up")
+	check(main._popup_block.mouse_filter == Control.MOUSE_FILTER_STOP and main._sheet.get_index() > main._gear.get_index() and main._popup_block.get_index() > main._gear.get_index(), "and it takes the clicks")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(absf(main._sheet.get_rect().get_center().x - main.size.x * 0.5) < 2.0, "centered in the window")
+	check(main._sheet.find_children("*", "RichTextLabel", true, false).any(func(t): return t.text == inspect_hero.bio()), "with the character's story in it")
+	check(_row_labels("right") == ["CLOSE"], "its way out says CLOSE")
+	var popup_title: Label = main._sheet.find_child("PopupTitle", true, false)
+	check(popup_title.text == "Character Sheet" and popup_title.get_parent().get_child(0) == popup_title, "the window is titled Character Sheet, at its top")
+	check(popup_title.get_theme_color("font_color") == main._title.get_theme_color("font_color") and popup_title.get_theme_font("font") == main._title.get_theme_font("font"), "in the color and font of the screen's title")
+	check(popup_title.get_theme_font_size("font_size") == main._title.get_theme_font_size("font_size") - 2, "two sizes smaller")
+	var popup_town_title := "The Red Dragon Inn"
+	press("L")
+	check(not main._sheet.visible and not main._popup_block.visible and main.scr["title"] == popup_town_title, "CLOSE leaves the screen it was called from")
+	main.chars.inspect(inspect_hero, "tavern", main.town.tavern)
 	var sheet_part := func(part: String) -> Node:
 		return main._sheet.find_child(part, true, false)
 	check(sheet_part.call("Portrait").texture == load(inspect_hero.portrait_path()), "the sheet has the portrait")
@@ -310,13 +374,13 @@ func run() -> int:
 		return sheet_part.call(section).find_children("*", "Button", true, false).map(func(b): return b.text)
 	check(sheet_buttons.call("SpellBook") == ["READ"], "READ sits by the Spell Book heading")
 	check(sheet_buttons.call("Equipment").slice(0, 3) == ["EQUIP", "DISCARD", "TRADE"], "EQUIP, DISCARD and TRADE sit by the Equipment heading")
-	check(_row_labels("left") == ["POOL GOLD"] and _row_labels("right") == ["BACK"], "the bio's window has POOL GOLD, and BACK at the right")
+	check(_row_labels("left") == ["POOL GOLD"] and _row_labels("right") == ["CLOSE"], "the bottom of the window has POOL GOLD, and CLOSE at the right")
 	var left_buttons: Array = [_row_button("left", 0), _row_button("right", 0)]
 	check(left_buttons.all(func(b): return b.get_theme_stylebox("normal").bg_color == main.PAGER_FILL and b.get_theme_font_size("font_size") == main.PAGER_FONT), "and they are small and brown")
-	check(main._sheet.find_children("*", "Button", true, false).all(func(b): return b.text != "EXIT" and b.text != "BACK" and b.text != "POOL GOLD"), "and neither is on the sheet")
+	check(main._sheet.get_child(0).get_child(1).find_children("*", "Button", true, false).all(func(b): return b.text != "CLOSE" and b.text != "POOL GOLD"), "and neither is on the sheet")
 	var sheet_kids: Array = sheet_part.call("Equipment").get_parent().get_children()
 	check(sheet_kids.find(sheet_part.call("Equipment")) == sheet_kids.find(sheet_part.call("Spells")) + 1 and sheet_part.call("Spells").fit_content, "Equipment follows straight after the spells, however few")
-	check(main._body.visible and main._body.text == main.esc(inspect_hero.bio()), "the left panel has the character's bio")
+	check(main._sheet.get_child(0).get_child(2).text == main.esc(inspect_hero.bio()), "the character's bio is under the sheet")
 	var bio_hero: Character = g.make_char("BIOGRAPH", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER", "FEMALE", "female_4")
 	g.roster.erase(bio_hero)
 	check(bio_hero.bio() == "BIOGRAPH is a good level 1 fighter. BIOGRAPH has yet to level up. She has ventured into the maze 0 times and has slain 0 creatures. She has found 0 gold and 0 items.", "a new character's bio is short")
@@ -384,7 +448,7 @@ func run() -> int:
 	check(main._backdrop.texture == tavern_art, "the spell books keep the tavern painting")
 	press("Enter")
 	press("L")
-	check(main.scr["title"] == "Gilgamesh's Tavern", "inspect returns to the tavern")
+	check(main.scr["title"] == "The Red Dragon Inn", "inspect returns to the tavern")
 	check(main._gear.visible, "the grid comes back after inspecting")
 	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving the tavern clears its painting")
@@ -392,9 +456,12 @@ func run() -> int:
 	party[5].status = "OK"
 	party[5].hp = party[5].maxhp
 	party[0].xp = 5000
-	main.town.inn_rooms(party[0])
-	press("1")
+	main.town.select_guest(party[0])
+	press("S")
 	check(party[0].lvl >= 2, "inn level-up")
+	press("Enter")
+	check(main.scr["title"] == "The Drunken Slumber" and main.town._selected == party[0], "after a stay the guest stays selected")
+	main.town.castle()
 
 	# --- the Maze ---
 	print("the Maze")
@@ -520,7 +587,290 @@ func run() -> int:
 
 
 ## The row that spreads a screen's buttons across the panel, and what is in one of its groups.
+func _test_mercenaries() -> void:
+	print("mercenaries")
+	var g = get_node("/root/Game")
+	var t: TownScreens = main.town
+	var saved_party: Array[int] = g.party.duplicate()
+	var saved_roster: Array = g.roster.duplicate()
+	var saved_mode: String = g.mode
+	g.mode = "castle"
+	var st: Dictionary = Data.RACES["HUMAN"].duplicate()
+	var leader: Character = g.make_char("LEADER", "HUMAN", "NEUTRAL", st, "FIGHTER")
+	var second: Character = g.make_char("SECOND", "HUMAN", "NEUTRAL", st.duplicate(), "FIGHTER")
+	leader.lvl = 4
+	second.lvl = 7
+	leader.gold = 1000
+	second.gold = 500
+	g.party.assign([leader.id, second.id])
+	check(t.round_cost() == 1400, "a round costs 200 gold for each level of the party's best")
+	t.tavern()
+	var buy_opt: Dictionary = main.scr["opts"].filter(func(o): return o["k"] == "B")[0]
+	check(buy_opt["label"] == "BUY ROUND (1400)" and not buy_opt["dis"], "the button says what it costs")
+	var buy_buttons: Array = main._gear_row.find_children("*", "Button", true, false).filter(func(b): return b.text == "BUY ROUND (1400)")
+	check(buy_buttons.size() == 1, "and sits under the cards")
+	check(main._gear_row.get_combined_minimum_size().x <= main.GEAR_COLUMN - 2.0 * main.GEAR_PANEL_MARGIN, "with room for the whole row")
+	var roster_before: int = g.roster.size()
+	press("B")
+	check(leader.gold + second.gold == 100, "the party pays between them")
+	check(main.scr["title"] == "A mercenary offers to join" and main._sheet.visible and main._gear.visible, "a mercenary's sheet opens over the inn")
+	check(_row_labels("left") == ["YES", "NO"], "with the choice under it")
+	check(g.roster.size() == roster_before, "they aren't on the roster yet")
+	press("N")
+	check(not main._sheet.visible and g.party.size() == 2 and g.roster.size() == roster_before and leader.gold + second.gold == 100, "NO leaves the gold spent and no one added")
+	check(not main.scr["opts"].filter(func(o): return o["k"] == "B")[0].has("x") and main.scr["opts"].filter(func(o): return o["k"] == "B")[0]["dis"], "and with no gold left there's no second round")
+	check(not press("B"), "so it can't be pressed")
+	leader.gold = 1400
+	t.tavern()
+	press("B")
+	var hire_next: int = g.next_id
+	press("Y")
+	check(g.party.size() == 3 and g.roster.size() == roster_before + 1 and g.next_id == hire_next + 1, "YES adds them to the roster and the party")
+	var hired: Character = g.roster.back()
+	check(hired.lvl == 10 and g.party.has(hired.id), "three levels above the best")
+	check(hired.mercenary and not leader.mercenary, "marked as a mercenary")
+	check(t.round_cost() == 1400 and t.make_mercenary().lvl == 10, "who doesn't count: the next round costs the same and brings the same level")
+	hired.lvl = 20
+	check(t.round_cost() == 1400 and t.make_mercenary().lvl == 10, "even after levelling up")
+	check(Character.from_dict(JSON.parse_string(JSON.stringify(hired.to_dict()))).mercenary, "and a save remembers it")
+	check(not Character.from_dict(JSON.parse_string(JSON.stringify(leader.to_dict()))).mercenary, "and who isn't one")
+	g.party.assign([hired.id])
+	check(t.round_cost() == 200 and t.make_mercenary().lvl == 4, "a party of only mercenaries counts as level 1")
+	hired.lvl = 10
+	g.party.assign([leader.id, second.id, hired.id])
+	g.party.assign([leader.id, second.id])
+	g.roster.erase(hired)
+	var races := {}
+	var sexes := {}
+	var titled := 0
+	var merc_last := 0
+	var merc_ok := {"level": true, "first": true, "last": true, "align": true, "hp": true, "xp": true, "portrait": true, "title": true}
+	var trials := 600
+	for i in trials:
+		var m: Character = t.make_mercenary()
+		races[m.race] = races.get(m.race, 0) + 1
+		sexes[m.sex] = sexes.get(m.sex, 0) + 1
+		var parts: PackedStringArray = m.name.split(" ")
+		var titles: Array = Data.FEMALE_TITLES if m.sex == "FEMALE" else Data.MALE_TITLES
+		var has_title: bool = titles.has(parts[0])
+		if has_title:
+			titled += 1
+		var first: String = parts[1] if has_title else parts[0]
+		merc_ok["first"] = merc_ok["first"] and (Data.FEMALE_NAMES if m.sex == "FEMALE" else Data.MALE_NAMES).has(first)
+		var has_last: bool = parts.size() == (3 if has_title else 2)
+		merc_ok["title"] = merc_ok["title"] and parts.size() <= (3 if has_title else 2)
+		merc_last += 1 if has_last else 0
+		merc_ok["last"] = merc_ok["last"] and (not has_last or Data.LAST_NAMES.has(parts[-1]))
+		merc_ok["level"] = merc_ok["level"] and m.lvl == 10
+		merc_ok["align"] = merc_ok["align"] and g.compatible(m) and Data.alignments_for(m.race).has(m.align)
+		merc_ok["hp"] = merc_ok["hp"] and m.hp == m.maxhp and m.maxhp > 0 and m.is_alive()
+		merc_ok["xp"] = merc_ok["xp"] and m.xp == Data.xp_needed(m.cls, 9)
+		merc_ok["portrait"] = merc_ok["portrait"] and m.portrait.begins_with(m.sex.to_lower() + "_")
+	check(g.roster.size() == roster_before, "making mercenaries adds no one")
+	check(races.size() == Data.RACES.size() and races.values().all(func(n): return n > trials / Data.RACES.size() / 2), "every race is about equally likely (%s)" % str(races))
+	check(sexes.size() == 2 and absi(sexes["MALE"] - sexes["FEMALE"]) < trials / 4, "and each sex (%s)" % str(sexes))
+	check(merc_ok["level"], "always three levels above the best")
+	check(merc_ok["first"] and merc_ok["last"], "with a first name for their sex, and any last name from the list")
+	check(merc_last > trials * 0.4 and merc_last < trials * 0.6, "about half of them have a last name (%d of %d)" % [merc_last, trials])
+	check(merc_ok["title"], "and a title for their sex, when they have one")
+	check(titled > trials * 0.30 and titled < trials * 0.50, "40 percent of them at level 10 (%d of %d)" % [titled, trials])
+	check(merc_ok["align"], "of an alignment the race allows and the party accepts")
+	check(merc_ok["hp"] and merc_ok["xp"] and merc_ok["portrait"], "healthy, with the experience for their level and a portrait to match")
+	var good_party: Character = g.make_char("GOODONE", "HUMAN", "GOOD", st.duplicate(), "FIGHTER")
+	g.party.assign([good_party.id])
+	var good_ok := true
+	for i in 200:
+		good_ok = good_ok and t.make_mercenary().align != "EVIL"
+	check(good_ok, "a good party is never offered an evil mercenary")
+	g.party.assign([leader.id])
+	leader.gold = 99999
+	g.party.resize(0)
+	g.party.assign([leader.id, second.id, leader.id, second.id, leader.id, second.id])
+	check(not t.can_buy_round(), "a full party can't buy a round for a mercenary")
+	g.party.assign([])
+	t.tavern()
+	check(main.scr["opts"].filter(func(o): return o["k"] == "B")[0]["hide"], "and with no party there's no one to buy it")
+	g.party.assign(saved_party)
+	g.roster.assign(saved_roster)
+	g.mode = saved_mode
+	main.clear_log()
+	t.castle()
+
+
+func _test_lockpicking() -> void:
+	print("lockpicking")
+	var g = get_node("/root/Game")
+	var st: Dictionary = Data.RACES["HUMAN"].duplicate()
+	for k in Data.STATS:
+		st[k] = 15
+	var picker: Character = g.make_char("PICKER", "HUMAN", "NEUTRAL", st, "THIEF")
+	picker.lvl = 5
+	var clumsy: Character = g.make_char("CLUMSY", "HUMAN", "GOOD", st.duplicate(), "FIGHTER")
+	clumsy.lvl = 5
+	check(LockScreens.studies(picker) == 1, "a level 5 thief with 15 luck: (15 + 10) / 2 / 10 = 1.25, so one study")
+	check(LockScreens.studies(clumsy) == 1, "anyone else counts as thief level 0: 0.75 rounds to one")
+	var lucky: Character = g.make_char("LUCKY", "HUMAN", "NEUTRAL", st.duplicate(), "THIEF")
+	lucky.lvl = 13
+	lucky.stats["luk"] = 18
+	check(LockScreens.studies(lucky) == 2, "level 13 with 18 luck: 2.2, so two")
+	lucky.lvl = 40
+	check(LockScreens.studies(lucky) == 5, "level 40 with 18 luck: 4.9, so five")
+	lucky.lvl = 13
+	clumsy.stats["luk"] = 5
+	check(LockScreens.studies(clumsy) == 1, "5 luck and no thief levels: 0.25, but everyone gets at least one")
+	clumsy.stats["luk"] = 15
+	check(LockScreens.study_message(1, 5) == "One tumbler doesn't seem right." and LockScreens.study_message(2, 5) == "Two tumblers don't seem right.", "a study counts the wrong tumblers")
+	check(LockScreens.study_message(3, 5) == "Three tumblers don't seem right." and LockScreens.study_message(4, 5) == "Four tumblers don't seem right.", "up to four")
+	check(LockScreens.study_message(5, 5) == "All tumblers seem wrong." and LockScreens.study_message(2, 2) == "All tumblers seem wrong.", "or says all of them")
+	check(LockScreens.study_message(0, 5) == "All tumblers seem right.", "and says when they are all right")
+	check(LockScreens.wrong_pins([0, 1, 1], [0, 1, 1]) == 0 and LockScreens.wrong_pins([1, 1, 0], [0, 1, 1]) == 2, "it counts them truly")
+	var opened := [0]
+	var failed := [0]
+	var backed := [0]
+	main.lock.pick(picker, [0, 1, 1], "A small chest", "chest", func(): opened[0] += 1, func(): failed[0] += 1, func(): backed[0] += 1, {})
+	var lock: LockPins = main.scr["widget"]
+	var opt_of := func(label: String) -> Dictionary:
+		return main.scr["opts"].filter(func(o): return o["label"] == label)[0]
+	check(lock.pins.size() == 3 and lock.pins.all(func(p): return p == LockPins.NOT_SET), "a small chest has three pins, none set")
+	check(opt_of.call("STUDY")["dis"] and opt_of.call("TRY")["dis"], "STUDY and TRY wait until they are all set")
+	lock.set_pin(0, LockPins.UP)
+	await get_tree().process_frame
+	lock = main.scr["widget"]
+	check(lock.pins[0] == LockPins.UP and opt_of.call("TRY")["dis"], "one pin set isn't enough")
+	var click := InputEventMouseButton.new()
+	click.button_index = MOUSE_BUTTON_LEFT
+	click.pressed = true
+	click.position = Vector2(lock._pin_left(1) + 5.0, lock.custom_minimum_size.y - 5.0)
+	lock._gui_input(click)
+	await get_tree().process_frame
+	lock = main.scr["widget"]
+	check(lock.pins[1] == LockPins.DOWN, "clicking below the bar sets a pin down")
+	click.position = Vector2(lock._pin_left(2) + 5.0, 5.0)
+	lock._gui_input(click)
+	await get_tree().process_frame
+	lock = main.scr["widget"]
+	check(lock.pins[2] == LockPins.UP and lock.all_set() and not opt_of.call("STUDY")["dis"] and not opt_of.call("TRY")["dis"], "clicking above sets it up, and now STUDY and TRY are ready")
+	check(main.scr["body"].contains("Studies left: 1"), "the screen says how many studies are left")
+	press("S")
+	check(main.scr["body"].contains("One tumbler doesn't seem right."), "STUDY says how many are wrong")
+	check(main.scr["body"].contains("Studies left: 0") and opt_of.call("STUDY")["dis"], "and uses one up")
+	check(not press("S"), "with none left STUDY does nothing")
+	press("T")
+	check(failed[0] == 1 and opened[0] == 0, "a wrong setting fails")
+	var kept_state := {"studied": 1}
+	main.lock.pick(picker, [0, 1, 1], "A small chest", "chest", func(): opened[0] += 1, func(): failed[0] += 1, func(): backed[0] += 1, kept_state)
+	check(main.scr["body"].contains("Studies left: 0"), "coming back to a lock doesn't give more studies")
+	main.lock.pick(lucky, [0, 1, 1], "A small chest", "chest", func(): opened[0] += 1, func(): failed[0] += 1, func(): backed[0] += 1, kept_state)
+	check(main.scr["body"].contains("Studies left: 1"), "and a better thief has only the rest of their own")
+	main.lock.pick(picker, [0, 1, 1], "A small chest", "chest", func(): opened[0] += 1, func(): failed[0] += 1, func(): backed[0] += 1, {})
+	main.scr["widget"].pins.assign([0, 1, 1])
+	main.lock._show()
+	press("T")
+	check(opened[0] == 1 and failed[0] == 1, "the right setting opens it")
+	press("L")
+	check(backed[0] == 1, "BACK leaves it")
+	check(g.door_locked(1, 3, 3, 1) == g.door_locked(1, 4, 3, 3) and g.door_solution(1, 3, 3, 1, 2) == g.door_solution(1, 4, 3, 3, 2), "a door's lock is the same from both sides")
+	var door_counts := [0, 0]
+	for dx in 20:
+		for dy in 20:
+			door_counts[1] += 1
+			if g.door_locked(1, dx, dy, 1):
+				door_counts[0] += 1
+	check(door_counts[0] > door_counts[1] / 10 and door_counts[0] < door_counts[1] / 2, "about a quarter of doors are locked (%d of %d)" % door_counts)
+	var door_at := []
+	var door_lv: MazeLevel = g.levels[1]
+	for dy in MazeLevel.N:
+		for dx in MazeLevel.N:
+			for dd in 4:
+				if door_at.is_empty() and door_lv.wall(dx, dy, dd) == 2 and g.door_locked(1, dx, dy, dd):
+					door_at = [dx, dy, dd]
+	check(not door_at.is_empty(), "the first level has a locked door")
+	var door_pos: Dictionary = g.pos.duplicate()
+	var door_party: Array[int] = g.party.duplicate()
+	var door_opened: Dictionary = g.opened.duplicate()
+	var door_monsters: bool = g.monsters_on
+	var door_mode: String = g.mode
+	g.monsters_on = false
+	g.mode = "maze"
+	g.party.assign([picker.id])
+	g.opened.erase(g._door_key(1, door_at[0], door_at[1], door_at[2]))
+	g.opened.erase(g._door_key(1, door_at[0] + MazeLevel.DX[door_at[2]], door_at[1] + MazeLevel.DY[door_at[2]], (door_at[2] + 2) % 4))
+	g.pos = {"x": door_at[0], "y": door_at[1], "z": 1, "d": door_at[2]}
+	main.mz.forward()
+	check(g.pos["x"] == door_at[0] and g.pos["y"] == door_at[1] and not g.door_open(1, door_at[0], door_at[1], door_at[2]), "walking into a locked door stops the party")
+	check(main.scr["title"] == "Who picks the lock?", "and asks who picks it")
+	main.mz._pick_door(picker)
+	check(main.scr["title"] == "A locked door" and main.scr["widget"].pins.size() == 2, "a door's lock has two pins")
+	var door_body_height: float = main._body.custom_minimum_size.y
+	var door_key: Array = g.door_solution(1, door_at[0], door_at[1], door_at[2], 2)
+	main.scr["widget"].pins.assign([1 - door_key[0], door_key[1]])
+	main.lock._show()
+	press("T")
+	check(main.scr["title"] == "A locked door" and not g.door_open(1, door_at[0], door_at[1], door_at[2]), "a wrong try leaves it locked")
+	main.scr["widget"].pins.assign(door_key)
+	main.lock._show()
+	press("S")
+	check(main._body.custom_minimum_size.y == door_body_height and door_body_height > 0.0, "what the character says doesn't move the lock")
+	press("T")
+	check(g.door_open(1, door_at[0], door_at[1], door_at[2]) and main.scr["where"].ends_with("Level 1"), "the right setting opens it, back in the Maze")
+	check(g.door_open(1, door_at[0] + MazeLevel.DX[door_at[2]], door_at[1] + MazeLevel.DY[door_at[2]], (door_at[2] + 2) % 4), "from both sides")
+	g.pos = door_pos
+	g.party.assign(door_party)
+	g.opened = door_opened
+	g.monsters_on = door_monsters
+	g.mode = door_mode
+	var f: CombatScreens = main.fight
+	var miss_mode: String = g.mode
+	var miss_party: Array[int] = g.party.duplicate()
+	g.mode = "maze"
+	g.party.assign([picker.id])
+	f.chest = {"trap": 0, "gold": 0, "item": "", "solution": [0, 1, 1, 0]}
+	f._pick_chest(picker)
+	var miss_lock: LockPins = main.scr["widget"]
+	miss_lock.pins.assign([1, 1, 1, 0])
+	main.lock._show()
+	press("T")
+	miss_lock = main.scr["widget"]
+	check(miss_lock.flashing and not f.chest.is_empty(), "a missed chest flashes before it opens")
+	check(not press("T") and not press("S") and not press("L"), "and nothing can be pressed meanwhile")
+	var miss_seen := []
+	var miss_step: float = (LockScreens.FLASH_LIT + LockScreens.FLASH_DARK) / 2.0
+	var miss_changes := 0
+	var miss_was_lit := false
+	for miss_tick in 40:
+		if f.chest.is_empty():
+			break
+		miss_lock.flash_tween.custom_step(miss_step / 3.0)
+		var miss_lit: bool = not miss_lock._flash_lit.is_empty()
+		if miss_lit:
+			miss_seen = miss_lock._flash_lit
+		if miss_lit and not miss_was_lit:
+			miss_changes += 1
+		miss_was_lit = miss_lit
+	check(miss_seen == [0, 1, 1, 0], "it shows the right pattern, not the guess")
+	check(miss_changes == LockScreens.FLASH_TIMES, "five times (%d)" % miss_changes)
+	check(f.chest.is_empty(), "and then the chest opens")
+	f.chest = {"trap": 0, "gold": 0, "item": "", "solution": [0, 1, 1, 0]}
+	f._pick_chest(picker)
+	main.scr["widget"].pins.assign([0, 1, 1, 0])
+	main.lock._show()
+	press("T")
+	check(f.chest.is_empty() and not (main.scr.get("widget") is LockPins), "the right setting doesn't flash")
+	g.party.assign(miss_party)
+	g.mode = miss_mode
+	f.chest = {"trap": 3, "gold": 0, "item": "", "solution": [0, 1, 1, 0]}
+	var chest_hp: int = picker.hp
+	f._chest_picked(picker)
+	check(f.chest.is_empty() and picker.hp == chest_hp, "picking a chest gets past its trap")
+	g.roster.erase(picker)
+	g.roster.erase(clumsy)
+	g.roster.erase(lucky)
+	main.clear_log()
+
+
 func _row_group(group: String) -> Node:
+	if main._sheet.visible:
+		return main._popup_row.get_node(group)
 	for row in main._opts_col.get_children():
 		if not row.is_queued_for_deletion() and row.has_node(group):
 			return row.get_node(group)
@@ -549,7 +899,7 @@ func _roll_attributes() -> void:
 ## A cell of the roll screen's grid: 0 the name, 1 rolled, 2 bonus, 3 total.
 func _stat_cell(row: int, column: int) -> String:
 	var grid: GridContainer = main.scr["widget"]
-	return grid.get_child((row + 1) * grid.columns + column).text
+	return grid.get_child((row + 2) * grid.columns + column).text  # under the row with RE-ROLL ALL, and the headings
 
 
 func _test_attribute_rolls() -> void:
@@ -561,16 +911,17 @@ func _test_attribute_rolls() -> void:
 	check(tray.visible and tray.dice.size() == 3, "three dice wait beside the stats panel")
 	check(tray.get_global_rect().position.x >= main._panel.get_global_rect().end.x, "to its right")
 	check(_shown_labels() == ["ROLL", "BACK"], "the first choice is to roll")
+	check(not main._opts_col.find_children("RowNote", "", true, false).any(func(n): return not n.is_queued_for_deletion()), "with no note beside it")
 	check(score_of.call(0) == "-" and main.scr["body"].contains("RE-ROLL POINTS: [color=#e3a33f]6[/color]"), "nothing is rolled yet, and there are 6 re-roll points")
 	var roll_button: Button = _row_button("center", 0)
 	check(roll_button.text == "ROLL" and roll_button.get_theme_stylebox("normal").bg_color == UiStyle.C_STONE2, "ROLL is a blue button in the middle of the row")
 	check(roll_button.custom_minimum_size == main.chars.ROLL_BUTTON_SIZE and roll_button.get_theme_font_size("font_size") > 22, "and a larger one")
 	check(_row_labels("right") == ["BACK"] and _row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "BACK is brown at the right")
-	var head_row: Array = main.scr["widget"].get_children().slice(1, 4).map(func(n): return n.text)
+	var head_row: Array = main.scr["widget"].get_children().slice(main.scr["widget"].columns + 1, main.scr["widget"].columns + 4).map(func(n): return n.text)
 	check(head_row == ["Rolled", "Bonus", "Total"], "the columns are Rolled, Bonus and Total")
 	check(_stat_cell(0, 2) == "+1", "each row shows the race's bonus")
 	check(_stat_cell(0, 1) == "-" and _stat_cell(0, 3) == "-", "with nothing rolled yet")
-	check(main.scr["widget"].get_children().slice(1).all(func(n): return n.custom_minimum_size.x == main.chars.STAT_NUMBER_WIDTH or n is Button or n is Control and n.custom_minimum_size.x == main.chars.STAT_NAME_WIDTH), "the columns have fixed widths, so a value can't move them")
+	check(main.scr["widget"].get_children().slice(main.scr["widget"].columns + 1).all(func(n): return n.custom_minimum_size.x == main.chars.STAT_NUMBER_WIDTH or n is Button or n is Control and n.custom_minimum_size.x == main.chars.STAT_NAME_WIDTH), "the columns have fixed widths, so a value can't move them")
 	check(main._body.custom_minimum_size.y == main.chars.STAT_BODY_HEIGHT and main.scr["row_height"] == main.chars.ROLL_BUTTON_SIZE.y, "and the text and buttons have fixed heights")
 	press("R")
 	check(main.scr["opts"].filter(func(o): return o["label"] == "ROLL")[0]["dis"], "ROLL waits for the dice to land")
@@ -581,7 +932,16 @@ func _test_attribute_rolls() -> void:
 	check(int(score_of.call(0)) == int(rolled_of.call(0)) + 1, "the total is the roll plus the bonus")
 	_roll_attributes()
 	check(_shown_labels() == ["RE-ROLL ALL (2)", "NEXT", "BACK"], "once all are rolled the choices are re-roll and next")
-	check(_row_labels("left") == ["RE-ROLL ALL (2)", "NEXT"] and _row_labels("center").is_empty() and _row_labels("right") == ["BACK"], "with BACK still at the right")
+	check(_row_labels("left")[0] == "NEXT" and _row_labels("center").is_empty() and _row_labels("right") == ["BACK"], "with NEXT at the left and BACK still at the right")
+	check(main.scr["widget"].get_node("RerollAll").text == "RE-ROLL ALL (2)" and main.scr["widget"].get_node("RerollAll").get_index() == 4, "RE-ROLL ALL is at the top, over the column of re-rolls")
+	check(main.scr["widget"].get_node("RerollAll").get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "and it is small and brown")
+	var next_button: Button = _row_button("left", 0)
+	check(next_button.get_theme_stylebox("normal").bg_color == UiStyle.C_STONE2 and next_button.custom_minimum_size == main.chars.NEXT_BUTTON_SIZE, "NEXT is a blue button")
+	check(next_button.custom_minimum_size.y == main.scr["row_height"] and _row_button("right", 0).size_flags_vertical == Control.SIZE_SHRINK_CENTER, "NEXT fills the row's height and BACK is centered in it, so their middles line up")
+	var row_note: Control = _row_group("left").get_node("RowNote")
+	check((row_note.text.contains("Choose a class next.") or row_note.text.contains("No class qualifies.")) and not main.scr["body"].contains("Choose a class") and not main.scr["body"].contains("No class qualifies"), "what to do next is beside NEXT, not above")
+	check(row_note.get_index() == next_button.get_index() + 1, "right after NEXT")
+	check(main.chars.NEXT_BUTTON_SIZE.x + main.ROW_NOTE_WIDTH + _row_button("right", 0).get_combined_minimum_size().x < main.BACKDROP_COLUMN - 16.0, "with room for all three on one line")
 	for row in Data.STATS.size():
 		check(int(rolled_of.call(row)) >= 3 and int(rolled_of.call(row)) <= 18, "%s is rolled" % Data.STATS[row])
 		var one_button: Button = main.scr["widget"].get_node("Reroll_" + Data.STATS[row])
@@ -802,6 +1162,69 @@ func _test_town_map(g) -> void:
 	check(chests_ok, "chests sit against plain walls, face the room, and stay clear of braziers and ladders")
 	print("chests: %d" % chest_total)
 	print("maze in 3D")
+	var info_mode: String = g.mode
+	g.mode = "maze"
+	main.mz.maze()
+	g.say("BILL HITS FOR 3 DAMAGE.")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(is_equal_approx(main.view.get_global_rect().position.y, main._panel.get_global_rect().position.y), "the Maze's picture is level with the panel beside it")
+	check(main._table.get_global_rect().position.x >= main.view.get_global_rect().end.x and is_equal_approx(main._table.get_global_rect().position.x, main._panel.get_global_rect().position.x), "and the party table is under that panel")
+	check(main._info.visible and is_equal_approx(main._info.get_global_rect().position.x, main.view.get_global_rect().position.x) and is_equal_approx(main._info.get_global_rect().size.x, main.view.get_global_rect().size.x), "the info window lines up with the picture")
+	check(main._info.get_global_rect().position.y >= main.view.get_global_rect().end.y and main._info.get_global_rect().position.y - main.view.get_global_rect().end.y <= main.INFO_GAP + 1.0, "right under it")
+	main.clear_log()
+	g.mode = "maze"
+	main.mz.maze()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(not main._table.visible and main.scr["widget"].get_child_count() == 6 and main.scr["party_grid"], "walking the Maze keeps the party's cards up, not the table")
+	var empty_party: Array[int] = g.party.duplicate()
+	g.party.assign([g.roster[0].id])
+	var empty_labels := func(grid: GridContainer) -> Array:
+		return grid.get_children().map(func(cell): return cell.get_child(0).get_child(0).text if cell.get_child(0).get_child(0) is Label else "")
+	var empty_walk: GridContainer = main.fight.explore_grid()
+	check(empty_labels.call(empty_walk).slice(1) == ["* EMPTY *", "* EMPTY *", "* EMPTY *", "* EMPTY *", "* EMPTY *"], "open slots in the Maze say * EMPTY *")
+	check(empty_walk.get_child(1).get_child(0).get_child(0).horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER and empty_walk.get_child(1).get_child(0).get_child(0).vertical_alignment == VERTICAL_ALIGNMENT_CENTER, "centered in the square")
+	main.fight.battle = Battle.new()
+	var empty_fight: GridContainer = main.fight._party_grid()
+	main.fight.battle = null
+	check(empty_labels.call(empty_fight)[5] == "* EMPTY *", "in combat too")
+	var empty_shop: GridContainer = main.town.gear_grid()
+	check(empty_labels.call(empty_shop)[5] == "", "but not in the shops")
+	empty_walk.free()
+	empty_fight.free()
+	empty_shop.free()
+	g.party.assign(empty_party)
+	var maze_buttons: Array = main._opts_col.find_children("*", "Button", true, false).map(func(b): return b.text)
+	check(maze_buttons == ["CAMP"] and not main.scr["opts"].any(func(o): return o["label"] == "QUIT" or o["label"] == "STATUS"), "CAMP is the only button left, with no QUIT or STATUS")
+	var camp_button: Button = main._opts_col.find_children("*", "Button", true, false)[0]
+	check(camp_button.get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "CAMP is small and brown")
+	var camp_rect: Rect2 = camp_button.get_global_rect()
+	var party_rect: Rect2 = main._panel.get_global_rect()
+	check(party_rect.end.y - camp_rect.end.y < 30.0 and party_rect.end.x - camp_rect.end.x < 30.0, "at the lower right of the party window")
+	check(main._tools.visible and main._tools.get_child_count() == 2 and main._tools.get_child(0).icon != null and main._tools.get_child(1).icon != null, "Inspect and Notes are icons on the picture")
+	check(main._tools.get_child(0).tooltip_text == "INSPECT AREA" and main._tools.get_child(1).tooltip_text == "MAP NOTES", "and say what they are under the mouse")
+	check(main._tools.get_global_rect().position.x - main.view.get_global_rect().position.x < 20.0 and main.view.get_global_rect().end.y - main._tools.get_global_rect().end.y < 20.0, "at the lower left of the picture")
+	var map_before: bool = g.show_map
+	main._tools.get_child(1).pressed.emit()
+	check(g.show_map != map_before and main._tools.get_child(1).tooltip_text == "MAP OFF", "the Notes icon switches the map")
+	g.show_map = map_before
+	main.mz.maze()
+	main._tools.get_child(0).pressed.emit()
+	check(main._info_text.text.contains("YOU SEARCH THE AREA"), "the Inspect icon inspects the area")
+	main.clear_log()
+	main.yesno("Ladder going up", "Climb it?", main.mz.maze, main.mz.maze)
+	check(not main._table.visible and main.scr["party_grid"], "a question in the Maze keeps the party's cards up")
+	main.mz.maze()
+	main.chars.training()
+	check(main._tools.get_child_count() == 0 or main._tools.get_children().all(func(n): return n.is_queued_for_deletion()), "other screens have no icons")
+	main.mz.maze()
+	var closing_light: int = g.light
+	g.light = 77
+	main._notification(NOTIFICATION_WM_CLOSE_REQUEST)
+	check(FileAccess.get_file_as_string(g.save_path).contains("\"light\":77"), "closing the window saves the game")
+	g.light = closing_light
+	g.mode = info_mode
 	var turn_button: Button = main._pad.get_child(4)
 	check(turn_button.icon != null and turn_button.text == "", "the turn around button shows its rotate icon")
 	main.mz.maze()
@@ -860,8 +1283,61 @@ func _test_town_map(g) -> void:
 	for ladder_d in 4:
 		g.pos["d"] = ladder_d
 		map_world.sync_to_party()
+		map_world.finish_glide()
 		check(is_equal_approx(wrapf(map_world._ladder_floor.rotation.y, -PI, PI), wrapf(MazeWorld.camera_yaw(ladder_d), -PI, PI)), "the ladder floor turns with the party, facing %d" % ladder_d)
 	g.pos["d"] = 0
+	print("gliding")
+	var glide_pos: Dictionary = g.pos.duplicate()
+	var glide_active: bool = map_world.is_processing()
+	var cam: Camera3D = map_world._camera
+	map_world.set_process(true)
+	g.pos = {"x": 5, "y": 5, "z": 1, "d": 0}
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	var glide_start := MazeWorld.camera_place(Vector2i(5, 5), 0)
+	var glide_end := MazeWorld.camera_place(Vector2i(5 + MazeLevel.DX[0], 5 + MazeLevel.DY[0]), 0)
+	check(cam.position.is_equal_approx(glide_start), "the camera starts on its square")
+	g.pos["x"] += MazeLevel.DX[0]
+	g.pos["y"] += MazeLevel.DY[0]
+	map_world.sync_to_party()
+	check(cam.position.is_equal_approx(glide_start), "a step doesn't jump")
+	map_world._process(MazeWorld.GLIDE_SECONDS * 0.5)
+	var glide_mid: Vector3 = cam.position
+	check(glide_mid.distance_to(glide_start) > 0.1 and glide_mid.distance_to(glide_end) > 0.1, "halfway through it is between the squares")
+	map_world.sync_to_party()
+	check(cam.position.is_equal_approx(glide_mid), "being drawn again doesn't disturb the glide")
+	map_world._process(MazeWorld.GLIDE_SECONDS * 0.5 + 0.01)
+	check(cam.position.is_equal_approx(glide_end), "and it arrives")
+	g.pos["d"] = 1
+	map_world.sync_to_party()
+	map_world._process(MazeWorld.GLIDE_SECONDS * 0.5)
+	var turn_mid: float = cam.rotation.y
+	check(turn_mid < -0.1 and turn_mid > -PI / 2.0 + 0.1, "a turn sweeps round")
+	check(is_equal_approx(map_world._ladder_floor.rotation.y, turn_mid), "with the ladder tile keeping up")
+	map_world.finish_glide()
+	g.pos["d"] = 0
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	g.pos["d"] = 3
+	map_world.sync_to_party()
+	map_world._process(MazeWorld.GLIDE_SECONDS * 0.5)
+	check(absf(angle_difference(cam.rotation.y, 0.0)) < PI / 2.0, "from north to west it takes the short way round")
+	map_world.finish_glide()
+	g.pos["d"] = 1
+	map_world.sync_to_party()
+	check(is_equal_approx(map_world._glide_length, MazeWorld.TURN_AROUND_SECONDS), "turning around takes a little longer")
+	map_world.finish_glide()
+	g.pos["x"] = 1
+	g.pos["y"] = 1
+	map_world.sync_to_party()
+	check(cam.position.is_equal_approx(MazeWorld.camera_place(Vector2i(1, 1), 1)) and map_world._glide_length == 0.0, "a teleport jumps")
+	g.pos["z"] = 2
+	map_world.sync_to_party()
+	check(map_world._glide_length == 0.0, "and so does a new level")
+	g.pos = glide_pos
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	map_world.set_process(glide_active)
 	var deepest: MazeLevel = g.levels[g.MAZE_LEVELS]
 	g.pos["z"] = g.MAZE_LEVELS
 	map_world.sync_to_party()
@@ -892,8 +1368,24 @@ func _test_town_map(g) -> void:
 		var hatch_turn: Vector3 = (hatch_c[1] - hatch_c[0]).cross(hatch_c[2] - hatch_c[1])
 		check(hatch_turn.y > 0.0, "the hatch ceiling faces the same way as the others, on side %d" % hatch_side)
 	check(map_world._braziers.size() == MazeWorld.brazier_spots(g.levels[1]).size(), "the level has its braziers standing")
+	check(map_world._braziers[0]["stand"].find_children("*", "Sprite3D", true, false).is_empty() and map_world._braziers[0]["stand"].get_child(0).get_child_count() == 1, "each is the pack's 3D cauldron")
+	check(is_equal_approx(MazeWorld.TORCH_MODEL_HEIGHT, 0.3), "and the wall torches are 40% smaller")
+	if ResourceLoader.exists(MazeWorld.BRAZIER_FIRE_SCENE):
+		var full_fire: Node3D = map_world._brazier_flames()
+		check(full_fire.get_child_count() == MazeWorld.BRAZIER_FLAMES, "a cauldron is full of flames")
+		check(full_fire.find_children("*", "AudioStreamPlayer3D", true, false).is_empty(), "silent ones")
+		full_fire.free()
+	var cauldron_pieces: Array = map_world._braziers[0]["stand"].get_child(0).find_children("*", "MeshInstance3D", true, false)
+	if map_world._braziers[0]["stand"].get_child(0).get_child(0) is MeshInstance3D:
+		cauldron_pieces.append(map_world._braziers[0]["stand"].get_child(0).get_child(0))
+	check(cauldron_pieces.all(func(m): return m.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_ON), "a cauldron casts a shadow")
 	check(map_world._chests.size() == MazeWorld.chest_spots(g.levels[1]).size(), "the level has its chests in place")
-	check(map_world._chest_mesh_shared.get_surface_count() == 3, "a chest is a real 3D model, in three colours")
+	check(map_world._chests[0].find_children("*", "MeshInstance3D", true, false).size() + (1 if map_world._chests[0].get_child(0) is MeshInstance3D else 0) >= 1, "a chest is the pack's 3D model")
+	main.view.show_view("chest")
+	var found_shown: bool = map_world.has_found_chest() == main.view.is_visible_in_tree()
+	check(found_shown, "the chest screen stands one in front of the party, whenever it shows the Maze")
+	main.view.show_view("maze")
+	check(not map_world.has_found_chest(), "and it goes when they leave")
 	var burning_ok := true
 	for burning in map_world._braziers:
 		var burning_near: bool = maxi(absi(burning["c"].x), absi(burning["c"].y)) <= MazeWorld.BRAZIER_NEAR
@@ -902,6 +1394,71 @@ func _test_town_map(g) -> void:
 		if burning["fire"] != null and burning["fire"].find_children("*", "AudioStreamPlayer3D", true, false).size() > 0:
 			burning_ok = false
 	check(burning_ok, "only braziers near the party burn, and they stay silent")
+	await _test_lockpicking()
+	_test_mercenaries()
+	print("wall torches")
+	var torch_lv: MazeLevel = g.levels[1]
+	var torch_all: Array = MazeWorld.torch_spots(torch_lv)
+	check(torch_all.size() >= 5, "the first level has torches (%d)" % torch_all.size())
+	check(MazeWorld.torch_spots(g.levels[2]).is_empty(), "the other levels don't")
+	check(str(torch_all) == str(MazeWorld.torch_spots(torch_lv)), "and they are always in the same places")
+	var torch_ok := true
+	var torch_taken := {}
+	for torch_other in MazeWorld.brazier_spots(torch_lv) + MazeWorld.chest_spots(torch_lv):
+		torch_taken[torch_other["c"]] = true
+	for torch_a in torch_all:
+		var torch_c: Vector2i = torch_a["c"]
+		if torch_lv.wall(torch_c.x, torch_c.y, torch_a["side"]) != 1 or torch_taken.has(torch_c) or torch_lv.flag(torch_c.x, torch_c.y, "dark") or torch_lv.flag(torch_c.x, torch_c.y, "up") or torch_lv.flag(torch_c.x, torch_c.y, "down"):
+			torch_ok = false
+		for torch_b in torch_all:
+			if torch_a != torch_b and absi(torch_c.x - torch_b["c"].x) + absi(torch_c.y - torch_b["c"].y) < MazeWorld.TORCH_SPACING:
+				torch_ok = false
+	check(torch_ok, "each is on a plain wall, in a square of its own, well apart from the others")
+	var torch_quadrants := {}
+	for torch_a in torch_all:
+		torch_quadrants[Vector2i(torch_a["c"].x * 2 / MazeLevel.N, torch_a["c"].y * 2 / MazeLevel.N)] = true
+	check(torch_quadrants.size() == 4, "they are spread around the whole level")
+	check(map_world._torches.size() == torch_all.size(), "the level has its torches hanging")
+	var clip_pos: Dictionary = g.pos.duplicate()
+	var clip_torch: Dictionary = map_world._torches[0]
+	var clip_side: int = torch_all[0]["side"]
+	g.pos = {"x": clip_torch["c"].x, "y": clip_torch["c"].y, "z": 1, "d": (clip_side + 2) % 4}
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	check(not clip_torch["stand"].get_child(0).visible, "with their back to a torch's wall, the camera doesn't sit inside the torch")
+	check(clip_torch["light"].visible == clip_torch["fire_on"], "though it still lights the room")
+	g.pos["d"] = clip_side
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	check(clip_torch["stand"].get_child(0).visible, "facing it, the torch shows")
+	g.pos["d"] = (clip_side + 1) % 4
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	check(clip_torch["stand"].get_child(0).visible, "and from the side")
+	var clip_chest_spot: Dictionary = MazeWorld.chest_spots(torch_lv)[0]
+	var clip_chest: Node3D = map_world._chests[0]
+	g.pos = {"x": clip_chest_spot["c"].x, "y": clip_chest_spot["c"].y, "z": 1, "d": (clip_chest_spot["side"] + 2) % 4}
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	check(not clip_chest.visible, "and the same goes for a chest")
+	g.pos["d"] = clip_chest_spot["side"]
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	check(clip_chest.visible, "which shows when facing it")
+	g.pos = clip_pos
+	map_world.sync_to_party()
+	map_world.finish_glide()
+	check(map_world._torches[0]["stand"].find_children("*", "Sprite3D", true, false).is_empty() and map_world._torches[0]["stand"].get_child(0).get_child_count() == 1, "each is the pack's 3D model")
+	var torch_burn_ok := true
+	for torch_t in map_world._torches:
+		var torch_near: bool = maxi(absi(torch_t["c"].x), absi(torch_t["c"].y)) <= MazeWorld.TORCH_NEAR
+		if torch_t["light"].visible != torch_near or torch_t["fire_on"] != torch_near:
+			torch_burn_ok = false
+		if torch_t["fire"] != null and torch_t["fire"].find_children("*", "AudioStreamPlayer3D", true, false).size() > 0:
+			torch_burn_ok = false
+		if torch_t["light"].shadow_enabled != true:
+			torch_burn_ok = false
+	check(torch_burn_ok, "only torches near the party burn, silently, and walls block their light")
 	var shows_open := func() -> bool:
 		for surface in map_world._level.mesh.get_surface_count():
 			if map_world._level.mesh.surface_get_material(surface).albedo_texture == MazeWorld.OPEN_DOOR_ART[0]:
@@ -922,12 +1479,37 @@ func _test_town_map(g) -> void:
 	g.pos = map_pos
 	g.light = map_light
 	print("town map")
+	g.mode = "castle"  # away from the Maze, where the window has a place of its own
+	main.clear_log()
+	check(not main._info.visible and main._info.get_parent() == main, "the info window is separate, and hidden until there is news")
+	g.say("FIRST NEWS.")
+	check(main._info.visible and main._info_text.text.contains("FIRST NEWS."), "news shows the info window")
+	check(is_equal_approx(main._info_timer.wait_time, 3.0) and not main._info_timer.is_stopped(), "and starts its 3 seconds")
+	main._info_timer.stop()
+	g.say("SECOND NEWS.")
+	check(main._info_text.text.contains("FIRST NEWS.") and main._info_text.text.contains("SECOND NEWS."), "more news joins it")
+	check(main._info_timer.time_left > 2.5, "and restarts the 3 seconds")
+	for news_i in 20:
+		g.say("NEWS %d." % news_i)
+	check(main._info_lines.size() == main.INFO_MAX_LINES and main._info_text.text.contains("NEWS 19."), "a burst of news keeps its latest lines")
+	check(main._info.mouse_filter == Control.MOUSE_FILTER_IGNORE and main._info_text.mouse_filter == Control.MOUSE_FILTER_IGNORE, "the info window lets clicks through")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(is_equal_approx(main._info.get_rect().end.y, main.size.y - main.INFO_MARGIN), "the info window sits at the bottom of the screen")
+	main._info_timer.timeout.emit()
+	check(not main._info.visible and main._info_lines.is_empty(), "when the time is up it hides and forgets")
+	g.say("LATER NEWS.")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(is_equal_approx(main._info.get_rect().end.y, main.size.y - main.INFO_MARGIN), "and comes back in the same place")
+	main.clear_log()
 	var saved: Array[int] = g.party.duplicate()
 	g.mode = "castle"
 	g.party.clear()
 	main.town.castle()
 	await get_tree().process_frame
 	check(main.town_map.visible, "the castle shows the map")
+	check(not main.town_map._party_toggle.visible and main.town_map._party.visible, "with no party there is no list to close")
 	var map_party: GridContainer = main.town_map._party
 	var saved_party: Array[int] = g.party.duplicate()
 	var map_first: Character = g.make_char("MAPPER", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER", "FEMALE", "female_4")
@@ -943,10 +1525,32 @@ func _test_town_map(g) -> void:
 		check(map_party.get_child(col).horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER, "the other party columns are centered")
 	check(map_party.get_child(6) is TextureRect and map_party.get_child(6).texture == load(map_first.portrait_path()), "the row starts with the member's portrait")
 	check(map_party.get_children().all(func(n): return n.mouse_filter == Control.MOUSE_FILTER_IGNORE), "the party window lets clicks through to the buildings")
+	var party_toggle: Button = main.town_map._party_toggle
+	check(party_toggle.visible and party_toggle.text == "CLOSE PARTY LIST" and party_toggle.icon == load(main.town_map.PARTY_CLOSE_ARROW) and party_toggle.get_index() > map_party.get_index(), "the list ends with a button to close it")
+	party_toggle.pressed.emit()
+	check(not map_party.visible and party_toggle.visible and party_toggle.text == "OPEN PARTY LIST" and party_toggle.icon == load(main.town_map.PARTY_OPEN_ARROW), "closing leaves only the button to open it, with its arrow pointing down")
+	main.town.tavern()
+	main.town.castle()
+	check(not map_party.visible and party_toggle.text == "OPEN PARTY LIST", "the list stays closed after visiting a building")
+	party_toggle.pressed.emit()
+	check(map_party.visible and party_toggle.text == "CLOSE PARTY LIST" and party_toggle.icon == load(main.town_map.PARTY_CLOSE_ARROW), "opening it brings the list back, and the arrow points up again")
 	g.party.assign(saved_party)
 	g.roster.erase(map_first)
 	main.town.castle()
 	var rect: Rect2 = main.town_map._map_rect()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(main.town_map._party_panel.position == rect.position + Vector2.ONE * 3.0, "the party list is 3 pixels from the top and left")
+	check(is_equal_approx(main.town_map._info_panel.position.x, rect.position.x + 3.0) and is_equal_approx(main.town_map._info_panel.get_rect().end.y, rect.end.y - 3.0), "the description is 3 pixels from the bottom and left")
+	var map_labels := {}
+	for map_opt in main.scr["opts"]:
+		map_labels[map_opt["k"]] = map_opt["label"]
+	check(map_labels["G"] == "THE RED DRAGON INN" and map_labels["A"] == "THE DRUNKEN SLUMBER" and map_labels["T"] == "CATHEDRAL OF REBIRTH" and map_labels["B"] == "THE BROKEN ANVIL" and map_labels["R"] == "PROVING GROUNDS", "the buildings have their new names")
+	check(main._body.get_theme_stylebox("focus") is StyleBoxEmpty, "clicking a description doesn't outline it")
+	for about in [["G", "rowdy tavern"], ["A", "quiet refuge"], ["T", "sacred sanctuary"], ["B", "bustling forge"], ["R", "great adventure"], ["E", "well-worn path"]]:
+		main.town_map._set_hover(about[0])
+		check(main.town_map._info.text.contains(map_labels[about[0]]) and main.town_map._info.text.contains(about[1]), "%s describes itself under the mouse" % map_labels[about[0]])
+	main.town_map._set_hover("")
 	check(absf(rect.size.x / rect.size.y - 16.0 / 9.0) < 0.001, "the map is 16:9")
 	check(main.town_map._texture != null and absf(float(main.town_map._texture.get_width()) / main.town_map._texture.get_height() - 16.0 / 9.0) < 0.001, "the painting is 16:9")
 	for map_smoke in [main.town_map._smoke, main.town_map._mist]:
@@ -993,14 +1597,13 @@ func _test_town_map(g) -> void:
 		check(not fire_flames.is_empty() and fire_flames.all(func(n): return n.speed_scale == TownMap.FIRE_SPEED), "the village campfire burns slowly")
 		check(fire_window.mouse_filter == Control.MOUSE_FILTER_IGNORE, "the fire lets clicks through")
 		check(fire_window.get_index() < main.town_map._party_panel.get_index(), "the fire burns under the corner panels")
-		var fire_foot: Vector2 = fire_window.position + Vector2(fire_window.size.x * 0.5, fire_window.size.y * (1.0 - TownMap.FIRE_BASE_HEIGHT))
-		check(fire_foot.distance_to(main.town_map.view_point(TownMap.FIRE_BASE)) < 1.0, "the fire stands on the campfire")
+		check(fire_window.foot().distance_to(main.town_map.view_point(TownMap.FIRE_BASE)) < 1.0, "the fire stands on the campfire")
 	for o in main.scr["opts"]:
 		check(TownMap.SPOTS.has(o["k"]), "%s has a building on the map" % o["label"])
 	_click_spot("B")
 	check(main.scr["title"] == "Castle", "a greyed-out building stays shut")
 	_click_spot("G")
-	check(main.scr["title"] == "Gilgamesh's Tavern" and not main.town_map.visible, "clicking the tavern enters it and hides the map")
+	check(main.scr["title"] == "The Red Dragon Inn" and not main.town_map.visible, "clicking the tavern enters it and hides the map")
 	check(main._backdrop.visible, "clicking the tavern shows its painting")
 	press("L")
 	check(main.scr["title"] == "Castle" and main.town_map.visible, "leaving the tavern returns to the map")
@@ -1026,10 +1629,10 @@ func _test_town_map(g) -> void:
 	main.town.edge_of_town()
 	press("C")
 	_click_spot("R")
-	check(main.scr["title"] == "Training Grounds", "clicking the yard opens the Training Grounds")
+	check(main.scr["title"] == "Proving Grounds", "clicking the yard opens the Proving Grounds")
 	var training_art: Texture2D = main._backdrop.texture
-	check(main._backdrop.visible and training_art != null, "the Training Grounds show their painting")
-	check(absf(float(training_art.get_width()) / training_art.get_height() - 16.0 / 9.0) < 0.001, "the Training Grounds painting is 16:9")
+	check(main._backdrop.visible and training_art != null, "the Proving Grounds show their painting")
+	check(absf(float(training_art.get_width()) / training_art.get_height() - 16.0 / 9.0) < 0.001, "the Proving Grounds painting is 16:9")
 	press("C")
 	check(main.scr["title"] == "Create a character" and main._backdrop.texture == training_art, "creating a character keeps the painting")
 	main.chars.create_race("RACER")
@@ -1056,6 +1659,38 @@ func _test_town_map(g) -> void:
 	main.scr["side"].find_child("Choose", true, false).pressed.emit()
 	check(main.scr["title"] == "RACER: choose an alignment" and not main._side.visible, "choosing a race moves on and closes the popup")
 	check(_row_labels("left") == ["GOOD", "NEUTRAL", "EVIL"] and _row_labels("right") == ["BACK"], "the alignment screen has BACK at the right")
+	main.chars.create_align("TUSK", "HALF-ORC")
+	check(_row_labels("left") == ["NEUTRAL", "EVIL"] and _row_labels("right") == ["BACK"], "half-orcs can only be neutral or evil")
+	check(not press("G"), "so there is no good to choose")
+	press("E")
+	check(main.scr["title"] == "TUSK: E-HALF-ORC", "evil is on offer")
+	main.chars.create_align("TUSK", "HALF-ORC")
+	press("N")
+	check(main.scr["title"] == "TUSK: N-HALF-ORC", "and so is neutral")
+	for other_race in ["HUMAN", "ELF", "DWARF", "GNOME", "HOBBIT"]:
+		check(Data.alignments_for(other_race) == ["GOOD", "NEUTRAL", "EVIL"], "%s can be any" % other_race)
+	var peace_orc: Character = g.make_char("PEACEORC", "HALF-ORC", "EVIL", Data.RACES["HALF-ORC"].duplicate(), "FIGHTER")
+	var peace_human: Character = g.make_char("PEACEHUMAN", "HUMAN", "EVIL", Data.RACES["HUMAN"].duplicate(), "FIGHTER")
+	var peace_party: Array[int] = g.party.duplicate()
+	var peace_fight: Variant = main.fight.battle
+	var peace_turned := [false, false]
+	main.fight.battle = Battle.new()
+	g.party.assign([peace_orc.id, peace_human.id])
+	for peace_try in 200:
+		peace_orc.align = "EVIL"
+		peace_human.align = "EVIL"
+		main.fight._leave_in_peace()
+		peace_turned[0] = peace_turned[0] or peace_orc.align == "GOOD"
+		peace_turned[1] = peace_turned[1] or peace_human.align == "GOOD"
+		main.fight.battle = Battle.new()
+	check(not peace_turned[0], "and a half-orc is never won over to good by leaving friends in peace")
+	check(peace_turned[1], "though others can be")
+	main.fight.battle = peace_fight
+	g.party.assign(peace_party)
+	g.roster.erase(peace_orc)
+	g.roster.erase(peace_human)
+	main.clear_log()
+	main.chars.create_align("RACER", "DWARF")
 	check(_row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "and it is brown")
 	press("L")
 	check(main.scr["title"] == "RACER: choose a race" and main._side.visible and main.scr["side"].get_child(0).text == "Dwarves are strong and pious", "BACK returns to the race, still selected")
@@ -1072,8 +1707,6 @@ func _test_town_map(g) -> void:
 	check(main.scr["opts"][-1]["label"] == "EXIT" and main.scr["opts"][-1]["fn"] == main.town.castle, "the Temple returns to town, so it says EXIT")
 	main.town.inn()
 	check(main.scr["opts"][-1]["label"] == "EXIT", "and so does the Inn")
-	main.town.inn_rooms(g.roster[0])
-	check(main.scr["opts"][-1]["label"] == "BACK", "but the Inn's rooms go back to the Inn")
 	main.town.castle()
 	main.chars.training()
 	main.chars.create_stats("PAINTED", "HUMAN", "GOOD")
@@ -1140,11 +1773,22 @@ func _test_town_map(g) -> void:
 	main.chars.create_portrait(picked, "FIGHTER", "FEMALE")
 	var kept_portrait := String(main.scr["widget"].get_child(1).name)
 	main.scr["widget"].get_child(1).pressed.emit()
-	check(main.scr["title"] == "Keep this character?" and main._portrait.visible, "the confirmation shows the chosen portrait")
+	var keep_count: int = g.roster.size()
+	var keep_id: int = g.next_id
+	check(main.scr["title"] == "Keep this character?" and main._sheet.visible and main._sheet.find_child("PopupTitle", true, false).text == "Keep this character?", "the confirmation is a window titled with the question")
+	check(main._sheet.find_child("Stats", true, false).text.contains("PICKED") and main._sheet.find_child("Portrait", true, false).texture == load("res://assets/images/portraits/%s.webp" % kept_portrait), "showing the character's sheet, with the chosen portrait")
+	check(_row_labels("left") == ["YES", "NO"], "and the choice under it")
+	check(g.roster.size() == keep_count and g.next_id == keep_id, "they aren't on the roster yet")
+	var keep_hits: String = main._sheet.find_child("Stats", true, false).text
+	press("N")
+	check(not main._sheet.visible and g.roster.size() == keep_count and g.next_id == keep_id and main.scr.has("dice"), "NO goes back to the scores, with no one added")
+	main.chars._confirm_char(picked, "FIGHTER")
+	check(main._sheet.find_child("Stats", true, false).text == keep_hits, "coming back shows the same character, not a free re-roll")
 	press("Y")
+	check(g.roster.size() == keep_count + 1 and g.next_id == keep_id + 1, "YES adds them")
 	var made: Character = g.roster.back()
 	check(made.name == "PICKED" and made.sex == "FEMALE" and made.portrait == kept_portrait, "the new character keeps the sex and portrait chosen")
-	check(not main._portrait.visible, "the Training Grounds hide the portrait again")
+	check(not main._portrait.visible, "the Proving Grounds hide the portrait again")
 	check(made.his() == "HER" and made.him() == "HER", "a female character gets female pronouns")
 	var reloaded := Character.from_dict(JSON.parse_string(JSON.stringify(made.to_dict())))
 	check(reloaded.sex == "FEMALE" and reloaded.portrait == kept_portrait, "sex and portrait survive a save")
@@ -1160,11 +1804,11 @@ func _test_town_map(g) -> void:
 	check(main._sheet.visible and main._sheet.find_child("Portrait", true, false).texture != null, "inspecting a character from an older save shows a portrait")
 	old_char.portrait = ""
 	main.chars.train_char(made)
-	check(main._portrait.visible and main._portrait_image.texture != null, "inspecting a character shows their portrait")
+	check(main._sheet.visible and main._sheet.find_child("Portrait", true, false).texture == load(made.portrait_path()), "inspecting a character shows their portrait")
 	main.chars.train_char(old_char)
-	check(not main._portrait.visible, "a character with no portrait shows none")
+	check(main._sheet.find_child("Portrait", true, false).texture == null, "a character with no portrait shows none")
 	main.chars.train_char(made)
-	check(_row_labels("right") == ["BACK"] and _row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL and _row_button("right", 0).get_theme_font_size("font_size") < 22, "BACK is small and brown, at the right")
+	check(_row_labels("right") == ["CLOSE"] and _row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_FILL and _row_button("right", 0).get_theme_font_size("font_size") < 22, "CLOSE is small and brown, at the right")
 	check(_row_labels("left").has("CHANGE PORTRAIT"), "with the other buttons on the left")
 	main.chars._choose_class(picked, ["FIGHTER"])
 	check(main._pager_row.get_child(-1).text == "BACK" and main._pager_row.get_child(-1).get_theme_stylebox("normal").bg_color == main.PAGER_FILL, "a list's BACK is too")
@@ -1174,27 +1818,71 @@ func _test_town_map(g) -> void:
 	main._on_input_submitted(g.roster[0].name)
 	check(made.name == "PICKED" and main.scr["title"] == "Rename PICKED", "a taken name is refused")
 	main._on_input_submitted("RENAMED")
-	check(made.name == "RENAMED" and main.scr["title"] == "RENAMED", "a free name is taken, back on the character's screen")
+	check(made.name == "RENAMED" and main.scr["title"] == "Character Sheet", "a free name is taken, back on the character's sheet")
 	made.name = "PICKED"
 	main.chars.train_char(made)
 	press("P")
 	check(main.scr["title"] == "PICKED: choose a portrait" and main.scr["widget"].get_child_count() == 12, "Change Portrait opens the picker")
 	press("L")
-	check(main.scr["title"] == "PICKED" and made.portrait == kept_portrait, "leaving the picker keeps the old portrait")
+	check(main.scr["title"] == "Character Sheet" and made.portrait == kept_portrait, "leaving the picker keeps the old portrait")
 	press("P")
 	press("N")
 	var changed_portrait := String(main.scr["widget"].get_child(0).name)
 	main.scr["widget"].get_child(0).pressed.emit()
-	check(main.scr["title"] == "PICKED" and made.portrait == changed_portrait, "Change Portrait replaces the portrait")
-	check(main._portrait_image.texture == load(made.portrait_path()), "the character screen shows the new portrait")
+	check(main.scr["title"] == "Character Sheet" and made.portrait == changed_portrait, "Change Portrait replaces the portrait")
+	check(main._sheet.find_child("Portrait", true, false).texture == load(made.portrait_path()), "the character's sheet shows the new portrait")
 	g.roster.erase(made)
 	main.chars.training()
-	press("R")
-	check(main.scr["title"] == "Roster" and main._backdrop.texture == training_art, "the roster keeps the painting")
+	check(main._backdrop.texture == training_art and main._gear.visible and not main._table.visible, "the roster shows as a grid over the painting")
+	check(g.MAX_ROSTER == 20 and main._gear_grid.columns == 5 and main._gear_grid.get_child_count() == 20, "five across and four down")
+	var empty_card: Control = main._gear_grid.get_child(19)
+	check(g.roster.size() < 20 and empty_card.get_child(0).get_child(0).text == "* EMPTY *" and empty_card.get_child(0).get_child(0).horizontal_alignment == HORIZONTAL_ALIGNMENT_CENTER and empty_card.get_child(0).get_child(0).vertical_alignment == VERTICAL_ALIGNMENT_CENTER, "an empty slot says so, in its middle")
+	check(empty_card.get_child_count() == 1, "and can't be selected")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var roster_note: Label = main._gear_grid.get_parent().get_child(main._gear_grid.get_parent().get_child_count() - 1)
+	check(roster_note.text.begins_with("ROSTER: ") and not main._body.text.contains("ROSTER: "), "the roster count is at the bottom of the right panel")
+	check(roster_note.get_global_rect().position.y >= main._gear_grid.get_global_rect().end.y and roster_note.get_theme_font_size("font_size") == main._gear_grid.get_parent().get_child(0).get_theme_font_size("font_size"), "under the cards, in the small text of the line above them")
+	check(main._gear.get_global_rect().end.y <= main.size.y, "and the panel still fits the window")
+	check(_row_labels("left") == ["CREATE A CHARACTER"] and _row_labels("right") == ["EXIT"], "CREATE and EXIT share a row")
+	check(is_equal_approx(_row_button("left", 0).get_global_rect().get_center().y, _row_button("right", 0).get_global_rect().get_center().y), "level with each other")
+	check(_row_button("right", 0).get_theme_stylebox("normal").bg_color == main.PAGER_EXIT_FILL and main._exit_row.get_child_count() == 0, "with EXIT still red")
+	main.town.tavern()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(main._panel.get_global_rect().size.y <= main._panel.get_combined_minimum_size().y + 1.0, "a building's text panel is only as tall as its contents")
+	var panel_short: float = main._panel.size.y
+	main.show_screen({"title": "The Red Dragon Inn", "body": "\n".join(range(12).map(func(i): return "A LINE OF TEXT")), "opts": []})
+	await get_tree().process_frame
+	await get_tree().process_frame
+	check(main._panel.size.y > panel_short, "and grows with more text")
+	main.town.tavern()
+	check(main._exit_row.get_child_count() == 1 and main._gear_grid.get_parent().get_child(main._gear_grid.get_parent().get_child_count() - 1) == main._gear_row, "other screens have no note, and keep their EXIT")
+	main.chars.training()
+	check(not main.scr["opts"].any(func(o): return o["label"] == "ROSTER OF CHARACTERS" or o["label"] == "INSPECT A CHARACTER"), "the old roster and inspect buttons are gone")
+	check(main._gear_grid.get_parent().get_child(0).text == "Click a character to select them.", "it says to click someone")
+	var roster_cards_before: Vector2 = main._gear_grid.get_child(0).get_combined_minimum_size()
+	var inspect_buttons := func() -> Array:
+		return main._gear_grid.find_children("*", "Button", true, false).filter(func(b): return b.text == "INSPECT")
+	check(inspect_buttons.call().is_empty(), "nobody is selected yet, so nothing can be inspected")
+	main._gear_grid.get_child(0).get_child(1).pressed.emit()
+	var roster_chosen: Character = g.roster[0]
+	check(main.chars._recruit == roster_chosen and inspect_buttons.call().size() == 1, "clicking a card selects them, with INSPECT under them")
+	check(inspect_buttons.call()[0].get_parent().get_parent() == main._gear_grid.get_child(0), "on their own card")
+	check(main._gear_grid.get_child(0).get_theme_stylebox("panel").border_color == PartyCards.SELECTED_EDGE, "which lights up")
+	check(main._gear_grid.get_child(0).get_combined_minimum_size().y == roster_cards_before.y, "and no card changes size")
+	inspect_buttons.call()[0].pressed.emit()
+	check(main.scr["title"] == "Character Sheet" and main.scr.has("sheet"), "INSPECT brings up their sheet")
+	check(main.scr["opts"].any(func(o): return o["label"] == "DELETE") and main.scr["opts"].any(func(o): return o["label"] == "CHANGE PORTRAIT"), "with what the Proving Grounds can do to them")
+	press("L")
+	check(main.scr["title"] == "Proving Grounds" and main.chars._recruit == roster_chosen, "BACK returns with them still selected")
+	press("L")
+	check(main.scr["title"] == "Castle" and main.chars._recruit == null, "leaving forgets who was selected")
+	main.chars.training()
 	press("Enter")
 	press("L")
-	check(main.scr["title"] == "Castle", "leaving the Training Grounds returns to the map")
-	check(not main._backdrop.visible, "leaving the Training Grounds clears their painting")
+	check(main.scr["title"] == "Castle", "leaving the Proving Grounds returns to the map")
+	check(not main._backdrop.visible, "leaving the Proving Grounds clears their painting")
 	press("T")
 	check(main.scr["title"] == "Castle", "the Temple key respects the greying")
 	for id in saved:
@@ -1239,7 +1927,7 @@ func _test_town_map(g) -> void:
 	check(main.town._gear_font("Weapon: STAFF OF MOGREF (BROKEN)") < main.town.GEAR_FONT, "a long name shrinks to fit")
 	gear_hero.items = gear_keep
 	main.town.shop(gear_hero)
-	check(main.scr["title"] == "Boltac's Trading Post" and main._backdrop.texture == boltac_art, "the shop keeps the painting")
+	check(main.scr["title"] == "The Broken Anvil" and main._backdrop.texture == boltac_art, "the shop keeps the painting")
 	check(main._gear.visible, "the shop keeps the party grid")
 	check(main._gear.position.x >= 16.0 + main.BACKDROP_COLUMN and main._gear.position.y == main.GEAR_TOP, "the party grid sits at the top, right of the store window")
 	press("B")
@@ -1260,26 +1948,82 @@ func _test_town_map(g) -> void:
 	var inn_art: Texture2D = main._backdrop.texture
 	check(main._backdrop.visible and inn_art != null and inn_art != boltac_art, "clicking the inn shows its own painting")
 	check(absf(float(inn_art.get_width()) / inn_art.get_height() - 16.0 / 9.0) < 0.001, "the inn painting is 16:9")
-	main.town.inn_rooms(g.party_chars()[0])
-	check(main.scr["title"].begins_with("Welcome") and main._backdrop.texture == inn_art, "the rooms keep the painting")
-	press("L")
-	check(main.scr["title"].begins_with("Adventurer's Inn") and main._backdrop.texture == inn_art, "leaving the rooms returns to the inn")
+	check(main.scr["title"] == "The Drunken Slumber" and main._gear.visible and not main._table.visible, "the inn shows the party as a grid, like the tavern")
+	var room_labels := ["STABLES", "COMMON ROOM", "SHARED ROOM", "PRIVATE ROOM", "KING'S SUITE"]
+	var shown_rooms := func() -> Array:
+		return main._gear_row.find_children("*", "Button", true, false).map(func(b): return b.text)
+	check(main._gear_grid.get_parent().get_child(0).text == "Click a party member to select them." and shown_rooms.call().is_empty(), "nobody is selected yet, so there are no rooms to choose")
+	check(main.scr["body"].contains("KING'S SUITE") and main.scr["body"].contains("FREE, NO HEALING"), "the left panel lists what the rooms cost")
+	var guest: Character = g.party_chars()[0]
+	var guest_gold: int = guest.gold
+	var guest_status: String = guest.status
+	guest.status = "PARALYZED"
+	main.town.select_guest(guest)
+	check(main.town._selected == null and shown_rooms.call().is_empty(), "the paralyzed cannot check in")
+	guest.status = "DEAD"
+	main.town.select_guest(guest)
+	check(main.town._selected == null and shown_rooms.call().is_empty(), "nor can the dead")
+	guest.status = "OK"  # whatever the fights earlier in this test left this member as
+	guest.gold = 50
+	main.town.select_guest(guest)
+	check(main.town._selected == guest and shown_rooms.call() == room_labels, "selecting a member shows the rooms under the cards")
+	check(main._gear_row.get_combined_minimum_size().x <= main.GEAR_COLUMN - 2.0 * main.GEAR_PANEL_MARGIN, "and the rooms fit under the cards without widening them")
+	var room_button := func(label: String) -> Button:
+		return main._gear_row.find_children("*", "Button", true, false).filter(func(b): return b.text == label)[0]
+	check(not room_button.call("SHARED ROOM").disabled and room_button.call("PRIVATE ROOM").disabled and room_button.call("KING'S SUITE").disabled, "rooms the member can't afford are disabled")
+	check(main._gear_row.find_children("*", "Button", true, false).all(func(b): return b.get_theme_stylebox("normal").bg_color == main.PAGER_FILL), "the rooms are small and brown")
+	guest.gold = guest_gold
+	guest.status = guest_status
+	main.town.inn()
+	check(main._backdrop.texture == inn_art and main.scr["opts"][-1]["label"] == "EXIT", "the inn keeps its painting and its EXIT")
 	press("L")
 	check(main.scr["title"] == "Castle" and not main._backdrop.visible, "leaving the inn clears its painting")
 	var party_before: Array[int] = g.party.duplicate()
 	press("R")
-	check(main.scr["title"] == "Training Grounds" and g.party == party_before and not party_before.is_empty(), "the Training Grounds keep the party together")
+	check(main.scr["title"] == "Proving Grounds" and g.party == party_before and not party_before.is_empty(), "the Proving Grounds keep the party together")
 	var retiree: Character = g.make_char("RETIREE", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER")
 	g.party.append(retiree.id)
 	main.chars._delete(retiree)
 	check(g.party == party_before and g.ch(retiree.id) == null, "retiring a party member takes them out of the party")
+	var lost_one: Character = g.make_char("LOSTONE", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER")
+	var lost_two: Character = g.make_char("LOSTTWO", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER")
+	var dead_home: Character = g.make_char("DEADHOME", "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER")
+	var outs_before: Array = g.outs.duplicate()
+	lost_one.loc = "OUT"
+	lost_one.status = "DEAD"
+	lost_two.loc = "OUT"
+	lost_two.status = "DEAD"
+	dead_home.status = "DEAD"
+	g.outs.append({"ids": [lost_one.id, lost_two.id], "pos": {"x": 1, "y": 1, "z": 1, "d": 0}})
+	main.chars.train_char(lost_one)
+	var delete_opt: Dictionary = main.scr["opts"].filter(func(o): return o["label"] == "DELETE")[0]
+	check(not delete_opt.get("dis", false), "someone lost in the Maze can be deleted")
+	check(main.scr["opts"].filter(func(o): return o["label"] == "CHANGE CLASS")[0]["dis"], "though their class still can't change")
+	press("D")
+	check(main.scr["title"] == "Lay them to rest?" and main.scr["body"].contains("LOSTONE"), "it asks first")
+	press("N")
+	check(g.ch(lost_one.id) != null and main.scr["title"] == "Character Sheet", "NO keeps them")
+	press("D")
+	press("Y")
+	check(g.ch(lost_one.id) == null and main.scr["title"] == "Proving Grounds", "YES lets them go")
+	check(g.outs.back()["ids"] == [lost_two.id], "the others lost with them stay where they fell")
+	main.chars.train_char(lost_two)
+	press("D")
+	press("Y")
+	check(g.ch(lost_two.id) == null and g.outs == outs_before, "and when no one is left, nothing is left in the Maze to find")
+	main.chars.train_char(dead_home)
+	check(not main.scr["opts"].filter(func(o): return o["label"] == "DELETE")[0].get("dis", false), "someone dead at home can be deleted")
+	press("D")
+	check(main.scr["title"] == "Lay them to rest?", "and is laid to rest too")
+	press("Y")
+	check(g.ch(dead_home.id) == null, "and is gone")
 	var fillers: Array[Character] = []
 	while not g.roster_full():
 		fillers.append(g.make_char("FILLER%d" % fillers.size(), "HUMAN", "GOOD", Data.RACES["HUMAN"].duplicate(), "FIGHTER"))
-	check(g.roster.size() == 16, "the roster holds 16 characters")
+	check(g.roster.size() == 20, "the roster holds 20 characters")
 	main.chars.training()
 	press("C")
-	check(main.scr["title"] == "Training Grounds", "a full roster cannot create a character")
+	check(main.scr["title"] == "Proving Grounds", "a full roster cannot create a character")
 	main.chars._delete(fillers.pop_back())
 	press("C")
 	check(main.scr["title"] == "Create a character", "deleting a character makes room for a new one")
@@ -1423,7 +2167,7 @@ func _test_start_flow(g, roster_size: int) -> void:
 	await _venture_from_title()
 	check(g.mode == "maze" and g.pos == {"x": 3, "y": 4, "z": 2, "d": 1}, "a maze save resumes on its square")
 	check(g.light == 30 and g.party == [hero.id], "a maze save keeps the party and its light")
-	check(get_tree().current_scene.scr.get("where", "") == "Maze · Level 2", "a maze save shows the maze")
+	check(String(get_tree().current_scene.scr.get("where", "")).ends_with("Maze · Level 2"), "a maze save shows the maze")
 	check(g.outs.is_empty(), "a resumed party is not stranded")
 	var door_lv: MazeLevel = g.levels[2]
 	var door := Vector3i(-1, -1, 0)
@@ -1447,6 +2191,57 @@ func _test_start_flow(g, roster_size: int) -> void:
 	# The testing switches on screen.
 	var sw_scene = get_tree().current_scene
 	check(sw_scene.monsters_button.text == "MONSTERS: ON" and sw_scene.god_button.text == "GOD MODE: OFF", "the switches start with monsters on and god mode off")
+	print("debug menu")
+	check(not sw_scene._debug_list.visible and sw_scene._debug_toggle.text == "OPEN DEBUG MENU" and sw_scene._debug_toggle.icon == load(TownMap.PARTY_OPEN_ARROW), "the debug menu starts closed, with a down arrow")
+	sw_scene._debug_toggle.pressed.emit()
+	check(sw_scene._debug_list.visible and sw_scene._debug_toggle.text == "CLOSE DEBUG MENU" and sw_scene._debug_toggle.icon == load(TownMap.PARTY_CLOSE_ARROW), "pressing it opens the menu, with an up arrow")
+	var debug_labels: Array = sw_scene._debug_list.get_children().map(func(b): return b.text)
+	check(debug_labels[0].begins_with("MONSTERS") and debug_labels[1].begins_with("GOD MODE") and debug_labels[2] == "TO TOWN" and debug_labels[3] == "SPAWN CHEST" and debug_labels[4] == "ADD 500 GOLD" and debug_labels.size() == 5, "it has the monsters, god mode, town, chest and gold options")
+	var debug_mode: String = g.mode
+	var debug_party: Array[int] = g.party.duplicate()
+	var debug_all_off := func() -> bool:
+		return sw_scene._debug_list.get_children().all(func(b): return b.disabled or b == sw_scene.gold_button)
+	g.mode = "castle"
+	sw_scene._show_test_switches()
+	check(debug_all_off.call(), "away from the Maze every option is greyed out")
+	check(not sw_scene._debug_toggle.disabled, "but the menu still opens and closes")
+	g.party.assign([g.roster[0].id])
+	g.mode = "maze"
+	sw_scene._show_test_switches()
+	check(sw_scene._debug_list.get_children().all(func(b): return not b.disabled), "walking the Maze they all work")
+	var gold_hero: Character = g.party_chars()[0]
+	var gold_before: int = gold_hero.gold
+	sw_scene.gold_button.pressed.emit()
+	check(gold_hero.gold == gold_before + 500, "ADD 500 GOLD gives each member 500")
+	gold_hero.gold = gold_before
+	g.mode = "castle"
+	sw_scene._show_test_switches()
+	check(not sw_scene.gold_button.disabled, "and it works in town too, where gold is spent")
+	var gold_party: Array[int] = g.party.duplicate()
+	g.party.clear()
+	sw_scene._show_test_switches()
+	check(sw_scene.gold_button.disabled, "as long as there is a party")
+	g.party.assign(gold_party)
+	g.mode = "maze"
+	sw_scene._show_test_switches()
+	g.mode = "combat"
+	sw_scene._show_test_switches()
+	check(not sw_scene.town_button.disabled and not sw_scene.god_button.disabled and sw_scene.chest_button.disabled, "in a fight or at camp, all but the chest")
+	g.mode = "maze"
+	sw_scene.mz.maze()
+	var debug_sizes := {}
+	for debug_try in 60:
+		sw_scene.chest_button.pressed.emit()
+		debug_sizes[sw_scene.fight.chest["solution"].size()] = true
+		check(sw_scene.scr["title"] == "A chest!", "SPAWN CHEST brings up a chest") if debug_try == 0 else null
+	check(debug_sizes.size() == 3 and debug_sizes.has(3) and debug_sizes.has(4) and debug_sizes.has(5), "of every size, at random")
+	check(sw_scene.scr["opts"].any(func(o): return o["label"] == "PICK LOCK"), "with its lock to pick")
+	sw_scene.fight.chest = {}
+	sw_scene._debug_toggle.pressed.emit()
+	check(not sw_scene._debug_list.visible and sw_scene._debug_toggle.text == "OPEN DEBUG MENU", "pressing it again closes the menu")
+	g.party.assign(debug_party)
+	g.mode = debug_mode
+	sw_scene._show_test_switches()
 	sw_scene.god_button.button_pressed = true
 	sw_scene.monsters_button.button_pressed = false
 	check(g.god_mode and not g.monsters_on, "the switches set god mode and monsters")
@@ -1630,7 +2425,7 @@ func _test_start_flow(g, roster_size: int) -> void:
 	god_hero.items.assign(keep_items)
 	god_hero.lvl = keep_lvl
 	sw_scene.mz.maze()
-	check(sw_scene._table.visible, "the party table returns after the fight")
+	check(not sw_scene._table.visible and sw_scene.scr["party_grid"] and sw_scene.scr["where"].ends_with("Level %d" % g.pos["z"]), "the party's cards stay up after the fight")
 	print("attack sounds")
 	var slime_attacks: Array = MonsterSounds.BY_MONSTER["SLIME"][MonsterSounds.ATTACK]
 	check(slime_attacks.size() == 4, "the slime has its four attack sounds")
@@ -1670,19 +2465,97 @@ func _test_start_flow(g, roster_size: int) -> void:
 		sfx_fight.sounds_played = 0
 		sfx_fight._fight_round()
 		return sfx_b
+	var land_time: float = sfx_fight.BY_SECONDS + sfx_fight.ON_SECONDS
 	sfx_start.call("SLIME", 5)
-	check(sfx_fight.sounds_played == 1 and sw_scene.view._results.size() == 1, "the first attack's sound and result come together")
-	sw_scene.view._process(MazeView.STEP_GAP - 0.1)
+	check(sfx_fight.sounds_played == 0 and sw_scene.view._mark_by == 0, "the attacking monster lights up first, before any sound")
+	sw_scene.view._process(land_time + 0.05)
+	check(sfx_fight.sounds_played == 1 and sfx_fight._word != "", "the sound comes as the blow lands")
+	sw_scene.view._process(sfx_fight.WORD_SECONDS - 0.2)
 	check(sfx_fight.sounds_played == 1, "the next attack waits its turn")
-	sw_scene.view._process(0.2)
-	check(sfx_fight.sounds_played == 2 and sw_scene.view._results.size() == 2, "the next attack brings its own sound and result")
+	for sfx_wait in 40:
+		if sfx_fight.sounds_played == 2:
+			break
+		sw_scene.view._process(0.1)
+	check(sfx_fight.sounds_played == 2, "the next attack brings its own sound")
 	sfx_start.call("RAT", 3)
-	check(sfx_fight.sounds_played == 0 and sw_scene.view._results.size() == 1, "monsters without sounds still show their attack")
-	var mon_res: Dictionary = sw_scene.view._results[0]
+	check(sfx_fight.sounds_played == 0 and sw_scene.view._mark_by == 0, "monsters without sounds still show their attack")
+	var mon_res: Dictionary = sfx_fight.battle.results[0]
 	check((String(mon_res["who"]).begins_with("HITS ") and String(mon_res["text"]).ends_with(" DAMAGE")) or mon_res["who"] == "MISSES", "a monster's attack says what it did")
 	sw_scene.view.show_view("combat")
-	sw_scene.view._process(MazeView.STEP_GAP + 0.1)
-	check(sfx_fight.sounds_played == 0 and sw_scene.view._results.is_empty(), "leaving stops the round")
+	sw_scene.view._process(land_time + 0.1)
+	check(sfx_fight.sounds_played == 0 and sw_scene.view._beats.is_empty() and sw_scene.view._mark_by == -1, "leaving stops the round")
+	print("attacks in steps")
+	var card_edge := func() -> Color:
+		var edge_grid: GridContainer = sfx_fight._party_grid()
+		var edge: Color = edge_grid.get_child(0).get_theme_stylebox("panel").border_color
+		edge_grid.free()
+		return edge
+	var card_fill := func() -> Color:
+		var fill_grid: GridContainer = sfx_fight._party_grid()
+		var fill: Color = fill_grid.get_child(0).get_theme_stylebox("panel").bg_color
+		fill_grid.free()
+		return fill
+	var blow_battle := Battle.new()
+	blow_battle.groups.append(Battle.mk_group("ORC", 3))
+	blow_battle.round_no = 1
+	sfx_fight.battle = blow_battle
+	sw_scene.view.battle = blow_battle
+	sfx_fight._run_round(true)
+	sw_scene.view.show_view("combat")
+	var blow_hero: Character = g.party_chars()[0]
+	var blow_hp := [blow_hero.hp, blow_hero.maxhp, blow_hero.status]
+	blow_hero.maxhp = 8
+	blow_hero.hp = 4
+	blow_hero.status = "OK"
+	sw_scene.view.start_steps([0], Callable())
+	sw_scene.hold_info(true)
+	g.say("THE ORC HITS FOR 4 DAMAGE.")
+	sfx_fight._present({"g": 0, "on": blow_hero, "hit": true}, [], {blow_hero: 8}, [blow_hero])
+	check(sw_scene.view._mark_by == 0 and sfx_fight._on == null and sfx_fight._word == "", "first only the attacker is lit")
+	check(not sw_scene._info_text.text.contains("THE ORC HITS") and sfx_fight._hp_labels[blow_hero].text.begins_with("HP 8/8"), "the news and the damage wait")
+	sw_scene.view._process(sfx_fight.BY_SECONDS + 0.01)
+	check(sfx_fight._on == blow_hero and sfx_fight._word == "" and card_edge.call() == sfx_fight.ON_COLOR, "then the one attacked lights up too")
+	sw_scene.view._process(sfx_fight.ON_SECONDS)
+	check(sfx_fight._word == "HIT" and sw_scene._info_text.text.contains("THE ORC HITS"), "then the blow lands, with its news")
+	var blow_labels := []
+	for blow_tick in 16:
+		blow_labels.append(sfx_fight._hp_labels[blow_hero].text.get_slice("/", 0))
+		sw_scene.view._process(0.1)
+	check(blow_labels.has("HP 7") and blow_labels.has("HP 6") and blow_labels.has("HP 5") and blow_labels.has("HP 4"), "the hit points count down one at a time")
+	check(blow_labels.find("HP 7") < blow_labels.find("HP 6") and blow_labels.find("HP 6") < blow_labels.find("HP 5") and blow_labels.find("HP 5") < blow_labels.find("HP 4"), "in order")
+	check(blow_labels.find("HP 4") >= 11 and blow_labels.back() == "HP 4", "over about a second and a half")
+	sfx_fight._clear_marks()
+	blow_hero.hp = 0
+	blow_hero.status = "DEAD"
+	sw_scene.view.start_steps([0], Callable())
+	sfx_fight._present({"g": 0, "on": blow_hero, "hit": true}, [], {blow_hero: 2}, [blow_hero])
+	check(card_fill.call() != PartyCards.DEAD_FILL, "someone killed doesn't fall until the blow has counted down")
+	sw_scene.view._process(sfx_fight.BY_SECONDS + 0.01)
+	sw_scene.view._process(sfx_fight.ON_SECONDS)
+	sw_scene.view._process(sfx_fight.HP_COUNT_SECONDS + 0.1)
+	check(card_fill.call() == PartyCards.DEAD_FILL, "and then they do")
+	sfx_fight._clear_marks()
+	sw_scene.view.start_steps([0], Callable())
+	blow_hero.status = "OK"
+	blow_hero.hp = 8
+	sfx_fight._present({"g": 0, "on": blow_hero, "hit": false}, [], {blow_hero: 8}, [])
+	sw_scene.view._process(sfx_fight.BY_SECONDS + sfx_fight.ON_SECONDS + 0.01)
+	check(sfx_fight._word == "MISS" and sfx_fight._hp_labels[blow_hero].text.begins_with("HP 8/8"), "a miss says MISS and takes nothing")
+	sfx_fight._clear_marks()
+	sw_scene.view.start_steps([0], Callable())
+	sfx_fight._present({"g": 0, "by": blow_hero, "hit": true}, [], {}, [])
+	check(sfx_fight._by == blow_hero and sw_scene.view._mark_by == -1 and sw_scene.view._mark_on == -1, "a character attacking lights up first")
+	sw_scene.view._process(sfx_fight.BY_SECONDS + 0.01)
+	check(sw_scene.view._mark_on == 0, "then the monsters attacked")
+	sw_scene.view._process(sfx_fight.ON_SECONDS)
+	check(sw_scene.view._results.size() == 1 and sw_scene.view._results[0]["text"] == "HIT", "then HIT shows on the monsters")
+	sfx_fight._clear_marks()
+	check(sw_scene.view._results.is_empty() and sw_scene.view._mark_on == -1, "and the next attack clears it")
+	blow_hero.hp = blow_hp[0]
+	blow_hero.maxhp = blow_hp[1]
+	blow_hero.status = blow_hp[2]
+	sw_scene.view.show_view("combat")
+	sw_scene.clear_log()
 	print("fight results")
 	var res_battle := Battle.new()
 	res_battle.groups.append(Battle.mk_group("ORC", 2))
@@ -1706,12 +2579,12 @@ func _test_start_flow(g, roster_size: int) -> void:
 			res_m["hp"] = 9999
 	res_battle.cmds = [{"c": god_hero, "type": "fight", "g": 0}]
 	sw_scene.fight._fight_round()
-	check(sw_scene.scr.get("title", "") == "Round 1" and sw_scene.view._results.size() == 1, "a round starts with one attack showing")
+	check(sw_scene.scr.get("title", "") == "Round 1" and (sw_scene.view._mark_by != -1 or sw_scene.fight._by != null), "a round starts with its first attacker lit")
 	var res_steps := 0
-	while sw_scene.scr.get("title", "") == "Round 1" and res_steps < 200:
+	while sw_scene.scr.get("title", "") == "Round 1" and res_steps < 300:
 		sw_scene.view._process(0.2)
 		res_steps += 1
-	check(res_steps > 8 and res_steps < 200 and sw_scene.view._results.is_empty(), "the fight moves on once the round has played and faded")
+	check(res_steps > 8 and res_steps < 300 and sw_scene.view._results.is_empty(), "the fight moves on once the round has played and faded")
 	check(res_battle.results.size() >= 4, "every attack in the round has a result")
 	var hold_calls := [0]
 	sw_scene.view.show_results([0], [{"g": 0, "text": "MISSES!", "hit": false}], func(): hold_calls[0] += 1)
@@ -1772,9 +2645,60 @@ func _test_start_flow(g, roster_size: int) -> void:
 	check(god_hero.gold == home_gold and god_hero.xp == home_xp and god_hero.items.size() == home_items and god_hero.hp == god_hp - 3 and god_hero.status == "OK", "the town button costs nothing")
 	check(sw_scene.town_button.disabled, "the town button is off at the castle")
 	sw_scene.mz.camp()
+	var camp_cards := func() -> GridContainer:
+		return sw_scene.scr["widget"].get_node("Cards")
+	check(not sw_scene._table.visible and sw_scene.scr["party_grid"] and camp_cards.call().get_child_count() == 6, "camp shows the party's cards")
+	check(sw_scene.scr["widget"].get_node("Hint").text == "Click a character to select them.", "and says to click one, over them")
+	check(sw_scene._after_widget.visible and sw_scene._after_widget.text.contains("Guards are posted") and sw_scene._body.text == "", "with the guards' line under the cards")
+	check(not sw_scene.scr["opts"].any(func(o): return o["label"] == "REORDER" or o["label"] == "EQUIP"), "and no REORDER or EQUIP")
+	check(sw_scene._under_view != null and sw_scene._under_view.text == "LEAVE CAMP", "with LEAVE CAMP under the picture")
+	var camp_ids: Array[int] = g.party.duplicate()
+	g.party.assign([g.roster[0].id, g.roster[1].id, g.roster[2].id])
+	sw_scene.mz.camp()
+	var camp_size_before: Vector2 = camp_cards.call().get_child(0).get_combined_minimum_size()
+	var camp_a: Character = g.party_chars()[0]
+	var camp_c: Character = g.party_chars()[2]
+	camp_cards.call().get_child(0).get_child(1).pressed.emit()
+	check(sw_scene.mz._camp_pick == camp_a and camp_cards.call().get_child(0).get_theme_stylebox("panel").border_color == PartyCards.SELECTED_EDGE, "clicking a card selects that character")
+	var camp_buttons: Array = camp_cards.call().get_child(0).find_children("*", "Button", true, false).map(func(b): return b.text)
+	check(camp_buttons.has("INSPECT") and camp_buttons.has("SWAP"), "with INSPECT and SWAP on their card")
+	check(camp_cards.call().get_child(0).get_combined_minimum_size().y == camp_size_before.y, "and no card changes height")
+	camp_cards.call().get_child(0).find_child("INSPECT", true, false).pressed.emit()
+	check(sw_scene.scr["title"] == "Character Sheet" and sw_scene._sheet.find_child("Stats", true, false).text.contains(camp_a.name), "INSPECT opens their sheet")
+	sw_scene.scr["opts"].filter(func(o): return o["label"] == "CLOSE")[0]["fn"].call()
+	check(sw_scene.scr["title"] == "Camp" and sw_scene.mz._camp_pick == camp_a, "CLOSE returns to camp, still selected")
+	camp_cards.call().get_child(0).find_child("SWAP", true, false).pressed.emit()
+	check(sw_scene.mz._camp_swapping and sw_scene.scr["widget"].get_node("Hint").text.contains("swaps places"), "SWAP waits for another card")
+	camp_cards.call().get_child(2).get_child(1).pressed.emit()
+	check(g.party_chars()[0] == camp_c and g.party_chars()[2] == camp_a and not sw_scene.mz._camp_swapping, "clicking one swaps their places")
+	check(sw_scene.mz._camp_pick == camp_a and camp_cards.call().get_child(2).get_theme_stylebox("panel").border_color == PartyCards.SELECTED_EDGE, "and the one who moved stays selected")
+	var camp_saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(g.save_path))
+	check(Array(camp_saved["party"]).map(func(n): return int(n)) == Array(g.party), "the new order is saved")
+	camp_cards.call().get_child(2).find_child("SWAP", true, false).pressed.emit()
+	camp_cards.call().get_child(2).find_child("SWAP", true, false).pressed.emit()
+	check(not sw_scene.mz._camp_swapping, "pressing SWAP again stops waiting")
+	camp_cards.call().get_child(1).get_child(1).pressed.emit()
+	check(sw_scene.mz._camp_pick == g.party_chars()[1] and g.party_chars()[0] == camp_c, "so a click just selects")
+	g.party.assign(camp_ids)
+	sw_scene.mz.camp()
+	var leave_button: Button = sw_scene._under_view
+	MazeView.instant_fades = false
+	leave_button.pressed.emit()
+	check(sw_scene.mz._camp_pick == null, "leaving camp forgets who was selected")
+	check(sw_scene.view.is_fading() and g.mode == "camp", "and fades the window to black first")
+	leave_button.pressed.emit()
+	await get_tree().create_timer(MazeView.FADE_TIME + 0.1).timeout
+	check(g.mode == "maze" and sw_scene.view._black.modulate.a < 1.0, "then shows the Maze as it fades back")
+	if sw_scene.view.is_fading():
+		await sw_scene.view.fade_done
+	check(sw_scene.view._black.modulate.a == 0.0, "until it is clear")
+	MazeView.instant_fades = true
+	check(sw_scene.scr["where"].ends_with("Level %d" % g.pos["z"]) and sw_scene.scr.has("moves"), "pressing it walks out of camp")
+	check(sw_scene._under_view == null and not is_instance_valid(leave_button), "and the button goes with it")
+	sw_scene.mz.camp()
 	check(not sw_scene.town_button.disabled, "the town button works in camp")
 	sw_scene.town_button.pressed.emit()
-	check(g.mode == "castle" and not sw_scene.view.world.has_campfire(), "leaving camp by the town button puts the campfire out")
+	check(g.mode == "castle" and sw_scene.view.camp_fire == null, "leaving camp by the town button puts the campfire out")
 	g.pos = {"x": 3, "y": 4, "z": 2, "d": 1}
 	god_hero.loc = "MAZE"
 	sw_scene.fight.encounter(false, false)
@@ -1791,22 +2715,23 @@ func _test_start_flow(g, roster_size: int) -> void:
 	await _venture_from_title()
 	check(g.mode == "camp", "a camp save resumes in camp")
 	var camp_scene = get_tree().current_scene
-	var camp_world: MazeWorld = camp_scene.view.world
-	var pack_here := ResourceLoader.exists(MazeWorld.CAMPFIRE_SCENE)
-	check(camp_world.has_campfire() == pack_here, "camp lights the campfire if the fire pack is installed")
+	var camp_view: MazeView = camp_scene.view
+	var pack_here := ResourceLoader.exists(MazeView.CAMP_FIRE_SCENE)
+	check(camp_view.kind == "camp" and not camp_view.world.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "camp is a painting, so the 3D Maze stops drawing")
+	check((camp_view.camp_fire != null) == pack_here, "camp lights the fire if the fire pack is installed")
 	if pack_here:
-		var fire_at: Vector3 = camp_world._campfire.position
-		check(is_equal_approx(fire_at.y, 0.0), "the campfire sits on the floor")
-		check(fire_at.distance_to(MazeWorld.cell_centre(Vector2i(g.pos["x"], g.pos["y"]))) < MazeWorld.CELL / 2.0, "the campfire is on the party's square")
-		var campfire_sound: AudioStreamPlayer3D = camp_world._campfire.get_node("Audio")
-		check(campfire_sound.autoplay and campfire_sound.stream != null, "the campfire has its sound")
-		check(camp_world._campfire.find_children("*", "OmniLight3D", true, false).is_empty() and camp_world._campfire_light.visible, "the campfire uses its own steady light, not the pack's")
-		var no_pack_light := true
-		for part in camp_world._campfire.get_children():
-			no_pack_light = no_pack_light and not ("intensity_multiplier" in part)
-		check(no_pack_light, "the pack's light node is gone from the campfire")
+		check(camp_view.camp_fire.foot().distance_to(camp_view.view_point(MazeView.CAMP_FIRE_BASE)) < 1.0, "the fire stands on the painted logs")
+		var crackle: AudioStreamPlayer = camp_view.camp_fire.get_node("Crackle")
+		check(crackle.autoplay and crackle.stream != null, "the campfire crackles")
+		var camp_flames: Node3D = camp_view.camp_fire.get_child(0).get_child(1)
+		check(camp_flames.find_children("*", "AudioStreamPlayer3D", true, false).is_empty() and not camp_flames.get_children().any(func(n): return "intensity_multiplier" in n), "without the pack's own sound and light")
+		check(camp_view.camp_fire.mouse_filter == Control.MOUSE_FILTER_IGNORE, "and lets clicks through")
+		check(camp_view.camp_fire.fire().scale.y > camp_view.camp_fire.fire().scale.x and camp_view.camp_fire.get_child(0).get_child_count() == 4, "the fire is taller, with a smaller flame to each side")
+		var camp_smoke: GPUParticles3D = camp_view.camp_fire.fire().get_node(MazeView.CAMP_SMOKE)
+		var camp_main: GPUParticles3D = camp_view.camp_fire.fire().get_node("Flames")
+		check(is_equal_approx(camp_smoke.speed_scale, camp_main.speed_scale * 2.0), "and its smoke rises twice as fast")
 	camp_scene.mz.maze()
-	check(not camp_world.has_campfire() and not camp_world._campfire_light.visible, "leaving camp puts the campfire and its light out")
+	check(camp_view.camp_fire == null and camp_view.world.render_target_update_mode == SubViewport.UPDATE_ALWAYS, "leaving camp puts the fire out and the Maze back")
 	g.mode = "combat"
 	g.save_game()
 	await _venture_from_title()

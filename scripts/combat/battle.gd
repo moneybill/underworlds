@@ -29,7 +29,7 @@ static func mk_group(id: String, n: int) -> Dictionary:
 var _acting: Character = null  # who is acting, to credit with any kills
 var sounds: Array = []  # what monsters did this round that can make a sound: {id, event}
 var _acts: Array = []  # what is left to happen this round, in order
-var results: Array = []  # what the party's attacks did this round, to show on the monsters: {g, who, text, hit}
+var results: Array = []  # the attacks this round: {g: the monster group, by or on: the character, who, text, hit}
 
 
 func setup(is_lair: bool, is_boss: bool) -> void:
@@ -317,7 +317,7 @@ func _fight(c: Character, g: int, backstab := false) -> void:
 		Character.add_to(c.weapon_damage, c.item_name(wpn) if wpn != null else Character.BARE_HANDS, dmg)
 	var nm := a_name(gp)
 	var shown := "MISSES!" if hits == 0 else ("%s FOR %d DAMAGE" % ["BACKSTABS" if backstab else "HITS", dmg] if dmg > 0 else "LANDS A CRITICAL HIT!")
-	results.append({"g": groups.find(gp), "who": c.name, "text": shown, "hit": hits > 0})
+	results.append({"g": groups.find(gp), "who": c.name, "text": shown, "hit": hits > 0, "by": c})
 	if hits == 0:
 		Game.say("%s SWINGS AT %s AND MISSES." % [c.name, nm])
 		return
@@ -476,10 +476,10 @@ func _mon_act(gp: Dictionary, m: Dictionary) -> void:
 			dmg += d
 			Game.hurt(t, d)
 	if hits == 0:
-		results.append({"g": groups.find(gp), "who": "MISSES", "text": t.name + "!", "hit": false})
+		results.append({"g": groups.find(gp), "who": "MISSES", "text": t.name + "!", "hit": false, "on": t})
 		Game.say("%s ATTACKS %s AND MISSES." % [nm, t.name])
 		return
-	results.append({"g": groups.find(gp), "who": "HITS " + t.name, "text": "FOR %d DAMAGE" % dmg, "hit": true})
+	results.append({"g": groups.find(gp), "who": "HITS " + t.name, "text": "FOR %d DAMAGE" % dmg, "hit": true, "on": t})
 	Game.say("%s HITS %s %s FOR %d DAMAGE." % [nm, t.name, "%d TIMES" % hits if hits > 1 else "ONCE", dmg], "hit")
 	if t.hp <= 0:
 		t.hp = 0

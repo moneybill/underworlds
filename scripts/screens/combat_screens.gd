@@ -6,8 +6,27 @@ extends RefCounted
 const IDLE_GAP_MIN := 6.0  # seconds between idle sounds, at least
 const IDLE_GAP_MAX := 12.0  # and at most
 
+const BY_SECONDS := 0.4  # how long the attacker shows alone
+const ON_SECONDS := 0.4  # and then the target, before the blow lands
+const WORD_SECONDS := 0.9  # HIT or MISS, when no hit points are counting down
+const HP_COUNT_SECONDS := 1.5  # hit points counting down
+const FAST_BY_SECONDS := 0.1  # the same, with Fast Combat Results on
+const FAST_ON_SECONDS := 0.1
+const FAST_WORD_SECONDS := 0.3
+const FAST_HP_COUNT_SECONDS := 0.4
+const HIT_WORD := "HIT"
+const MISS_WORD := "MISS"
+const WORD_FONT := 34
+const MARK_WIDTH := 4
+const ON_COLOR := Color("d6563f")
+
 var ui
 var instant := false  # tests play rounds in one go
+var _by: Character = null  # the character attacking now
+var _on: Character = null  # the character being attacked now
+var _word := ""  # HIT or MISS, on the attacked character's portrait
+var _shown_hp := {}  # character -> the hit points still showing while a blow lands
+var _hp_labels := {}  # character -> the hit point line on their card
 var sounds_played := 0
 var idles_played := 0
 var battle: Battle = null
@@ -81,7 +100,7 @@ func _attack_friends() -> void:
 
 func _leave_in_peace() -> void:
 	for c in Game.party_chars():
-		if c.align == "EVIL" and randf() < 0.1:
+		if c.align == "EVIL" and Data.alignments_for(c.race).has("GOOD") and randf() < 0.1:
 			c.align = "GOOD"
 			Game.say("%s FEELS STRANGELY WARM INSIDE. (NOW GOOD)" % c.name, "ok")
 	_done()
@@ -148,12 +167,39 @@ func _turn_options(i: int, c: Character) -> Array:
 
 
 ## The party, with the current character's options under their portrait.
+## The same cards for walking the Maze, with no fight going on.
+func explore_grid(on_click := Callable(), selected := -1) -> GridContainer:
+	return PartyCards.grid(_fill_explore_cell, selected, 3, on_click, true, 1.0, {}, true)
+
+
+func _fill_explore_cell(v: VBoxContainer, c: Character, _i: int) -> void:
+	PartyCards.add_head(v, c, true)
+	if c.status != "OK" and c.is_alive():  # the dead have their tombstone
+		_add_state_badge(v.get_child(0), c.status)
+
+
 func _party_grid(opts: Array = []) -> GridContainer:
-	return PartyCards.grid(_fill_cell.bind(opts), _active, 3)
+	var g := PartyCards.grid(_fill_cell.bind(opts), _active, 3, Callable(), true, 1.0, _shown_hp, true)
+	var ps := Game.party_chars()
+	if ps.has(_by):
+		_mark_card(g.get_child(ps.find(_by)), UiStyle.C_TORCH)
+	if ps.has(_on):
+		_mark_card(g.get_child(ps.find(_on)), ON_COLOR)
+	return g
+
+
+func _mark_card(cell: PanelContainer, edge: Color) -> void:
+	var mark: StyleBoxFlat = cell.get_theme_stylebox("panel").duplicate()
+	mark.border_color = edge
+	mark.set_border_width_all(MARK_WIDTH)
+	cell.add_theme_stylebox_override("panel", mark)
 
 
 func _fill_cell(v: VBoxContainer, c: Character, i: int, opts: Array) -> void:
-	PartyCards.add_head(v, c, true)
+	PartyCards.add_head(v, c, true, _shown_hp.get(c, -1))
+	_hp_labels[c] = v.get_child(v.get_child_count() - 1)
+	if c == _on and _word != "":
+		_add_word(v.get_child(0), _word)
 	var state := "" if c.status == "OK" else c.status
 	for order in battle.cmds:
 		if order["c"] == c:
@@ -183,6 +229,20 @@ func _fill_cell(v: VBoxContainer, c: Character, i: int, opts: Array) -> void:
 
 
 ## A character's order or condition, across the foot of their portrait.
+## HIT or MISS, large in the middle of a portrait.
+func _add_word(portrait: Control, word: String) -> void:
+	var l := Label.new()
+	l.text = word
+	l.add_theme_font_size_override("font_size", WORD_FONT)
+	l.add_theme_color_override("font_color", ON_COLOR if word == HIT_WORD else UiStyle.C_INK)
+	l.add_theme_stylebox_override("normal", UiStyle.box(Color(UiStyle.C_BG, 0.8), Color(UiStyle.C_BG, 0.8), 2))
+	l.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+	l.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	l.grow_vertical = Control.GROW_DIRECTION_BOTH
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	portrait.add_child(l)
+
+
 func _add_state_badge(portrait: Control, state: String) -> void:
 	var badge := PartyCards.label(state, UiStyle.C_TORCH)
 	var back := UiStyle.box(Color(UiStyle.C_BG, 0.85), UiStyle.C_TORCH, 0)
@@ -209,6 +269,7 @@ func _run_round(mon_only: bool) -> void:
 		return
 	_active = -1
 	_in_round = true
+	_clear_marks()
 	var shown := battle.alive_groups()
 	battle.begin_round(mon_only)
 	var title := "The monsters attack!" if mon_only else "Round %d" % battle.round_no
@@ -218,23 +279,103 @@ func _run_round(mon_only: bool) -> void:
 
 ## The next act that shows or sounds; acts that do neither just go in the log.
 func _step_round() -> void:
+	_clear_marks()
 	while battle.has_next_act():
 		var old_results: int = battle.results.size()
 		var old_sounds: int = battle.sounds.size()
+		var old_hp := {}
+		for c in Game.party_chars():
+			old_hp[c] = c.hp
+		var old_counts := {}
+		for g in battle.groups.size():
+			old_counts[g] = battle.live(battle.groups[g]).size()
+		ui.hold_info(true)
 		battle.step()
 		var streams := MonsterSounds.for_events(battle.sounds.slice(old_sounds))
-		if battle.results.size() == old_results and streams.is_empty():
+		var hurt: Array = Game.party_chars().filter(func(c): return old_hp.has(c) and c.hp < old_hp[c])
+		var news := battle.results.slice(old_results)
+		if news.is_empty() and streams.is_empty() and hurt.is_empty():
+			ui.hold_info(false)
 			continue
-		for res in battle.results.slice(old_results):
-			ui.view.add_result(res)
-		if not streams.is_empty():
-			_play_one(streams)
-			sounds_played += 1
-		_show_party()
+		ui.view.shown_counts = old_counts
+		_present(news.front() if not news.is_empty() else {}, streams, old_hp, hurt)
 		return
+	ui.hold_info(false)
 	var outcome := battle.finish_round()
 	_show_party()
 	ui.view.end_steps(_after.bind(outcome))
+
+
+func _beat(normal: float, fast: float) -> float:
+	return fast if Game.fast_results else normal
+
+
+## An attack: the attacker lights up, then the one attacked, then HIT or MISS and the damage counting down.
+## res is empty for what has no attacker to show, like a spell: its damage just counts down.
+func _present(res: Dictionary, streams: Array, old_hp: Dictionary, hurt: Array) -> void:
+	for c in hurt:
+		_shown_hp[c] = old_hp[c]
+	var count: float = _beat(HP_COUNT_SECONDS, FAST_HP_COUNT_SECONDS) if not hurt.is_empty() else 0.0
+	if res.is_empty():
+		_show_party()
+		_land({}, streams, hurt, old_hp, count)
+		ui.view.hold_next_step(maxf(ui.view._step_gap(), count))
+		return
+	var by_group: int = res["g"] if res.has("on") else -1
+	_by = res.get("by")
+	ui.view.set_marks(by_group, -1)
+	_show_party()
+	var to_target := _beat(BY_SECONDS, FAST_BY_SECONDS)
+	var to_word := to_target + _beat(ON_SECONDS, FAST_ON_SECONDS)
+	ui.view.after(to_target, _mark_target.bind(res, by_group))
+	ui.view.after(to_word, _land.bind(res, streams, hurt, old_hp, count))
+	ui.view.hold_next_step(to_word + maxf(count, _beat(WORD_SECONDS, FAST_WORD_SECONDS)))
+
+
+func _mark_target(res: Dictionary, by_group: int) -> void:
+	_on = res.get("on")
+	ui.view.set_marks(by_group, res["g"] if res.has("by") else -1)
+	_show_party()
+
+
+## The blow lands: its word, its sound and its news come together, and the damage starts counting down.
+func _land(res: Dictionary, streams: Array, hurt: Array, old_hp: Dictionary, count: float) -> void:
+	ui.hold_info(false)
+	ui.view.shown_counts = {}
+	if not streams.is_empty():
+		_play_one(streams)
+		sounds_played += 1
+	if not res.is_empty():
+		var word: String = HIT_WORD if res["hit"] else MISS_WORD
+		if res.has("on"):
+			_word = word
+		else:
+			ui.view.add_result({"g": res["g"], "text": word, "hit": res["hit"]})
+	_show_party()
+	for c in hurt:
+		var from: int = old_hp[c]
+		var to: int = maxi(c.hp, 0)
+		for i in range(1, from - to + 1):
+			ui.view.after(count * i / (from - to), _count_hp.bind(c, from - i, to))
+
+
+func _count_hp(c: Character, hp: int, last: int) -> void:
+	_shown_hp[c] = hp
+	if _hp_labels.has(c):
+		_hp_labels[c].text = PartyCards.hp_text(c, hp)
+	if hp == last:
+		_shown_hp.erase(c)
+		if not c.is_alive():
+			_show_party()  # only now do they fall
+
+
+func _clear_marks() -> void:
+	_by = null
+	_on = null
+	_word = ""
+	_shown_hp = {}
+	ui.view.clear_words()
+	ui.view.set_marks(-1, -1)
 
 
 func _play_one(streams: Array) -> void:
@@ -373,16 +514,18 @@ func open_chest(gold: int, boss_chest: bool) -> void:
 		item = "cusinart"
 	elif randf() < 0.35 + 0.1 * z:
 		item = Dice.pick(Data.LOOT[z])
-	chest = {"trap": 0 if randf() < 0.15 else Dice.rnd(1, mini(6, 3 + z)), "gold": gold, "item": item}
+	var slots: int = Dice.rnd(LockScreens.CHEST_SIZES.keys().min(), LockScreens.CHEST_SIZES.keys().max())
+	chest = {"trap": 0 if randf() < 0.15 else Dice.rnd(1, mini(6, 3 + z)), "gold": gold, "item": item, "solution": LockScreens.random_solution(slots)}
 	chest_menu()
 
 
 func chest_menu() -> void:
 	var who := func(title: String, fn: Callable): ui.pick_member(title, chest_menu, fn, func(c): return c.can_act())
 	ui.show_screen({"title": "A chest!", "where": _where(), "view": "chest",
-		"body": ui.flav("The monsters were guarding a treasure chest. Chests are usually trapped, and this is the moment your thief earns a share."),
+		"body": ui.flav("The monsters were guarding a %s treasure chest. Chests are usually trapped, and this is the moment your thief earns a share." % LockScreens.CHEST_SIZES[chest["solution"].size()]),
 		"opts": [
 			{"k": "O", "label": "OPEN", "fn": func(): who.call("Who opens it?", _open)},
+			{"k": "P", "label": "PICK LOCK", "fn": func(): who.call("Who picks the lock?", _pick_chest)},
 			{"k": "I", "label": "INSPECT", "fn": func(): who.call("Who inspects it?", _inspect)},
 			{"k": "C", "label": "CALFO", "fn": func(): who.call("Who casts CALFO?", _calfo)},
 			{"k": "D", "label": "DISARM", "fn": func(): who.call("Who disarms it?", _disarm)},
@@ -399,6 +542,22 @@ func _open(c: Character) -> void:
 		_spring(c)
 	else:
 		_loot()
+
+
+func _pick_chest(c: Character) -> void:
+	ui.lock.pick(c, chest["solution"], "A %s chest" % LockScreens.CHEST_SIZES[chest["solution"].size()], "chest", _chest_picked.bind(c), _chest_slipped.bind(c), chest_menu, chest, true)
+
+
+## A picked lock gets past the trap.
+func _chest_picked(c: Character) -> void:
+	Game.say("%s PICKS THE LOCK!" % c.name, "ok")
+	_loot()
+
+
+## A wrong try forces the lid, as if it had just been opened.
+func _chest_slipped(c: Character) -> void:
+	Game.say("THE PICK SLIPS AND THE LID JUMPS OPEN.", "hit")
+	_open(c)
 
 
 func _inspect(c: Character) -> void:

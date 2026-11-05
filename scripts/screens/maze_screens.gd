@@ -2,7 +2,16 @@ class_name MazeScreens
 extends RefCounted
 ## Entering the Maze, camp, walking, stairs, graffiti, searching for lost parties, and wipe-outs.
 
+const DOOR_NOISE_CHANCE := 0.25
+const CAMP_BUTTON_SIZE := Vector2(190, 48)
+const CAMP_CARD_BUTTONS := 30.0  # the row on a card for INSPECT and SWAP
+const INSPECT_ICON := "res://assets/images/inspect.svg"
+const NOTES_ICON := "res://assets/images/notes.svg"
+
 var ui
+var _door_states := {}  # door -> how often its lock has been studied
+var _camp_pick: Character = null  # the one selected at camp
+var _camp_swapping := false  # SWAP was pressed, so the next card clicked swaps places with them
 
 
 func _init(root) -> void:
@@ -31,37 +40,93 @@ func camp() -> void:
 	Game.mode = "camp"
 	Game.save_game()
 	var ps := Game.party_chars()
+	if not ps.has(_camp_pick):
+		_camp_pick = null
+		_camp_swapping = false
 	var opts := []
 	for i in ps.size():
-		opts.append({"k": str(i + 1), "label": ps[i].name, "fn": ui.chars.inspect.bind(ps[i], "camp", camp)})
-	opts.append({"k": "R", "label": "REORDER", "fn": reorder.bind([])})
-	opts.append({"k": "E", "label": "EQUIP", "fn": _equip_all.bind(0)})
-	opts.append({"k": "L", "label": "BACK", "fn": maze})
+		opts.append({"k": str(i + 1), "label": ps[i].name, "in_widget": true, "fn": _camp_card.bind(ps[i])})
+	opts.append({"k": "I", "label": "INSPECT", "in_widget": true, "hide": _camp_pick == null, "fn": _camp_inspect})
+	opts.append({"k": "S", "label": "SWAP", "in_widget": true, "hide": _camp_pick == null, "fn": _camp_swap})
+	opts.append({"k": "L", "label": "LEAVE CAMP", "under_view": CAMP_BUTTON_SIZE, "fn": _leave_camp})
+	var hint := "Click a character to select them."
+	if _camp_swapping:
+		hint = "Click who %s swaps places with." % _camp_pick.name
+	var cards := VBoxContainer.new()
+	var hint_line := Label.new()
+	hint_line.name = "Hint"
+	hint_line.text = hint
+	hint_line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint_line.add_theme_font_size_override("font_size", ui.GEAR_HINT_FONT)
+	cards.add_child(hint_line)
+	var grid := PartyCards.grid(_fill_camp_card, ps.find(_camp_pick), 3, _camp_card, true, 1.0, {}, true, true)
+	grid.name = "Cards"
+	cards.add_child(grid)
 	ui.show_screen({"title": "Camp", "where": "Maze · Level %d" % Game.pos["z"], "view": "camp", "opts": opts,
-		"body": ui.flav("Guards are posted and the fire is lit. No monster will trouble you while you stay in camp.")})
+		"widget": cards, "party_grid": true,
+		"after_widget": ui.flav("Guards are posted and the fire is lit. No monster will trouble you while you stay in camp.")})
 
 
-func _equip_all(i: int) -> void:
-	var ps := Game.party_chars()
-	if i >= ps.size():
-		camp()
-	else:
-		ui.chars.equip_flow(ps[i], _equip_all.bind(i + 1), ["W", "A", "S", "H"])
-
-
-func reorder(picked: Array) -> void:
-	var rest := Game.party_chars().filter(func(c): return not picked.has(c.id))
-	if rest.is_empty():
-		Game.party.clear()
-		for cid in picked:
-			Game.party.append(cid)
-		Game.save_game()
-		camp()
+## Every card keeps room for the selected one's buttons, so that selecting someone moves nothing.
+func _fill_camp_card(v: VBoxContainer, c: Character, _i: int) -> void:
+	PartyCards.add_head(v, c, true)
+	if c.status != "OK" and c.is_alive():
+		ui.fight._add_state_badge(v.get_child(0), c.status)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 6)
+	row.custom_minimum_size.y = CAMP_CARD_BUTTONS
+	v.add_child(row)
+	if c != _camp_pick:
 		return
-	var items := []
-	for c in rest:
-		items.append({"label": c.name, "right": "%s-%s" % [c.align.substr(0, 1), c.cdata()["ab"]], "fn": reorder.bind(picked + [c.id])})
-	ui.choose_list("Who goes in position %d?" % (picked.size() + 1), ui.flav("Only the first three can fight with weapons, and only they can be struck in melee."), items, camp)
+	for spec in [["INSPECT", _camp_inspect], ["SWAP", _camp_swap]]:
+		var b := Button.new()
+		b.name = spec[0]
+		b.text = spec[0]
+		b.focus_mode = Control.FOCUS_NONE
+		UiStyle.make_small_button(b)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		b.pressed.connect(spec[1])
+		row.add_child(b)
+	if _camp_swapping:
+		var swap_button: Button = row.get_node("SWAP")
+		UiStyle.make_small_button(swap_button, UiStyle.C_TORCH, UiStyle.C_TORCH)  # waiting for the other one
+		swap_button.add_theme_color_override("font_color", UiStyle.C_BG)
+
+
+## Selects someone, or while swapping, swaps places with them.
+func _camp_card(c: Character) -> void:
+	if _camp_swapping and _camp_pick != null and c != _camp_pick:
+		var a := Game.party.find(_camp_pick.id)
+		var b := Game.party.find(c.id)
+		Game.party[a] = c.id
+		Game.party[b] = _camp_pick.id
+		Game.say("%s AND %s SWAP PLACES." % [_camp_pick.name, c.name])
+		_camp_swapping = false
+	else:
+		_camp_pick = c
+		_camp_swapping = false
+	camp()
+
+
+func _camp_inspect() -> void:
+	_camp_swapping = false
+	ui.chars.inspect(_camp_pick, "camp", camp)
+
+
+## Pressed again, it stops waiting.
+func _camp_swap() -> void:
+	_camp_swapping = not _camp_swapping
+	camp()
+
+
+## The window fades to black and back into the Maze.
+func _leave_camp() -> void:
+	_camp_pick = null
+	_camp_swapping = false
+	ui.view.fade_through_black(func():
+		if Game.mode == "camp":  # unless the town button was pressed meanwhile
+			maze())
 
 
 func maze() -> void:
@@ -76,26 +141,40 @@ func maze() -> void:
 		fx += "MAPORFIC · "
 	if Game.latumapic:
 		fx += "LATUMAPIC · "
-	ui.show_screen({"title": "In darkness" if dark else ("Lit corridor" if Game.light > 0 else "The Maze"), "where": "Maze · Level %d" % p["z"],
-		"view": "maze", "pad": true, "body": fx + "USE THE ARROWS TO MOVE",
+	ui.show_screen({"title": "In darkness" if dark else ("Lit corridor" if Game.light > 0 else "The Maze"), "where": fx + "Maze · Level %d" % p["z"],
+		"view": "maze", "pad": true, "widget": ui.fight.explore_grid(), "party_grid": true, "opts_bottom": true,
 		"moves": {"W": forward, "A": turn.bind(3), "D": turn.bind(1), "X": turn.bind(2)},
 		"opts": [
-			{"k": "C", "label": "CAMP", "fn": camp},
-			{"k": "S", "label": "STATUS", "fn": _status},
-			{"k": "I", "label": "INSPECT AREA", "fn": inspect_area},
-			{"k": "M", "label": "MAP OFF" if Game.show_map else "MAP NOTES", "fn": func(): Game.show_map = not Game.show_map; maze()},
-			{"k": "Q", "label": "QUIT", "fn": func(): ui.yesno("Quit the game?", "Your party stays where it is and picks up from here next time.", _quit, maze)},
+			{"k": "C", "label": "CAMP", "small": true, "at": "right", "fn": camp},
+			{"k": "I", "label": "INSPECT AREA", "in_widget": true, "tool": INSPECT_ICON, "fn": inspect_area},
+			{"k": "M", "label": "MAP OFF" if Game.show_map else "MAP NOTES", "in_widget": true, "tool": NOTES_ICON, "fn": func(): Game.show_map = not Game.show_map; maze()},
 		]})
 
 
-func _status() -> void:
-	ui.render_party()
-	Game.say(" · ".join(Game.party_chars().map(func(c): return "%s %d/%d %s" % [c.name, c.hp, c.maxhp, c.status])))
+func _pick_door(c: Character) -> void:
+	var p: Dictionary = Game.pos
+	var solution: Array = Game.door_solution(p["z"], p["x"], p["y"], p["d"], LockScreens.DOOR_SLOTS)
+	var door: String = Game._door_id(p["z"], p["x"], p["y"], p["d"])
+	if not _door_states.has(door):
+		_door_states[door] = {}
+	ui.lock.pick(c, solution, "A locked door", "maze", _door_picked.bind(c), _door_jammed.bind(c), maze, _door_states[door])
 
 
-func _quit() -> void:
-	Game.save_game()
-	ui.get_tree().quit()
+func _door_picked(c: Character) -> void:
+	var p: Dictionary = Game.pos
+	Game.open_door(p["z"], p["x"], p["y"], p["d"])
+	Game.say("%s PICKS THE LOCK!" % c.name, "ok")
+	maze()
+
+
+## A wrong try makes a noise, which something may come to see about.
+func _door_jammed(c: Character) -> void:
+	Game.say("THE PINS RATTLE AND THE LOCK HOLDS.", "hit")
+	if Game.monsters_on and randf() < DOOR_NOISE_CHANCE:
+		Game.say("SOMETHING HEARD THAT!", "hit")
+		ui.fight.encounter(false, false)
+		return
+	_pick_door(c)
 
 
 func turn(k: int) -> void:
@@ -111,6 +190,10 @@ func forward() -> void:
 		Game.say("OUCH!")
 		return
 	if w == 2 and not Game.door_open(p["z"], p["x"], p["y"], p["d"]):
+		if Game.door_locked(p["z"], p["x"], p["y"], p["d"]):
+			Game.say("THE DOOR IS LOCKED.")
+			ui.pick_member("Who picks the lock?", maze, _pick_door, func(c): return c.can_act())
+			return
 		Game.open_door(p["z"], p["x"], p["y"], p["d"])
 		Game.say("THE DOOR CREAKS OPEN.")
 	if w == 3:
@@ -229,4 +312,4 @@ func wiped() -> void:
 	Game.mode = "castle"
 	Game.save_game()
 	ui.say("Your party is wiped out", "The whole party lies dead in the Maze. Their bodies stay where they fell.\n\n" +
-		ui.flav("Send a rescue party to that spot and use INSPECT AREA to carry them home to the Temple."), ui.town.castle, "Castle")
+		ui.flav("Send a rescue party to that spot and use INSPECT AREA to carry them home to the Cathedral."), ui.town.castle, "Castle")

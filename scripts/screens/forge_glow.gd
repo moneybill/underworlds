@@ -1,18 +1,18 @@
 class_name ForgeGlow
 extends Control
-## The heat of Boltac's forges, drawn over the town map: the coals pulse, their light spills onto the
+## The heat of the Broken Anvil's forges, drawn over the town map: the coals pulse, their light spills onto the
 ## ground around them, and embers drift up. It never touches the game's random numbers, because how
 ## long the map stays open must not change what the dice roll next.
 
 ## In the map's SPOTS coordinates. core is the size of the coals' glow, spill of the light around it.
 const FORGES := [
-	{"at": Vector2(1295, 891), "core": Vector2(70, 70), "spill": Vector2(230, 150), "phase": 0.0},
-	{"at": Vector2(1385, 914), "core": Vector2(84, 62), "spill": Vector2(240, 150), "phase": 2.4},
+	{"at": Vector2(1317, 917), "core": Vector2(76, 76), "spill": Vector2(248, 162), "phase": 0.0},
+	{"at": Vector2(1415, 942), "core": Vector2(91, 67), "spill": Vector2(259, 162), "phase": 2.4},
 ]
 const EMBERS := [
-	{"at": Vector2(1295, 885), "count": 7, "spread": 16.0, "rise": 85.0, "life": 2.2, "phase": 0.3},
-	{"at": Vector2(1385, 908), "count": 7, "spread": 24.0, "rise": 75.0, "life": 2.0, "phase": 1.7},
-	{"at": Vector2(1315, 739), "count": 5, "spread": 8.0, "rise": 110.0, "life": 2.8, "phase": 3.1},
+	{"at": Vector2(1317, 910), "count": 7, "spread": 17.3, "rise": 91.8, "life": 2.2, "phase": 0.3},
+	{"at": Vector2(1415, 935), "count": 7, "spread": 25.9, "rise": 81.0, "life": 2.0, "phase": 1.7},
+	{"at": Vector2(1339, 753), "count": 5, "spread": 8.6, "rise": 118.8, "life": 2.8, "phase": 3.1},
 ]
 const CORE_COLOR := Color(1.0, 0.5, 0.12)
 const SPILL_COLOR := Color(1.0, 0.36, 0.08)

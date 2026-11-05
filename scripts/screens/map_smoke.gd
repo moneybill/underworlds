@@ -10,12 +10,12 @@ const TEXTURE := "res://Vefects/Free Fire VFX/Textures/T_VFX_Smoke_01.tga"
 ## Places are in the map's SPOTS coordinates. travel is where a puff ends up, bend how far it is blown
 ## off course by the end, and ease above 1 keeps it near its source for longer. thick multiplies the
 ## texture's brightness, squash flattens the puffs, and fade_in is a share of a puff's life.
-const CHIMNEY := {"base": Vector2(1315, 746), "puffs": 28, "life": 9.0, "travel": Vector2(0, -330), "ease": 1.15, "bend": Vector2(-110, 0),
-	"wander": Vector2(6, 34), "sway": 14.0, "sway_speed": 0.7, "size": Vector2(44, 210), "shade": Color(0.07, 0.065, 0.065), "lit": Color(0.22, 0.21, 0.2),
+const CHIMNEY := {"base": Vector2(1339, 760), "puffs": 28, "life": 9.0, "travel": Vector2(0, -356), "ease": 1.15, "bend": Vector2(-119, 0),
+	"wander": Vector2(6, 37), "sway": 15.1, "sway_speed": 0.7, "size": Vector2(48, 227), "shade": Color(0.07, 0.065, 0.065), "lit": Color(0.22, 0.21, 0.2),
 	"strength": 0.9, "thick": 1.55, "fade_in": 0.015, "fade_out": 1.1, "spin": 0.12, "squash": 1.0}
 ## Low white wisps, flowing out of the Maze's door, down its steps and along the path.
-const MAZE_MIST := {"base": Vector2(1746, 229), "puffs": 18, "life": 32.0, "travel": Vector2(-78, 59), "ease": 1.0, "bend": Vector2(-10, 8),
-	"wander": Vector2(6, 33), "sway": 12.0, "sway_speed": 0.35, "size": Vector2(45, 195), "shade": Color(0.72, 0.75, 0.78), "lit": Color(1, 1, 1),
+const MAZE_MIST := {"base": Vector2(1805, 202), "puffs": 18, "life": 32.0, "travel": Vector2(-84, 64), "ease": 1.0, "bend": Vector2(-11, 9),
+	"wander": Vector2(6, 36), "sway": 13.0, "sway_speed": 0.35, "size": Vector2(49, 211), "shade": Color(0.72, 0.75, 0.78), "lit": Color(1, 1, 1),
 	"strength": 0.3, "thick": 1.2, "fade_in": 0.12, "fade_out": 1.2, "spin": 0.025, "squash": 0.45}
 ## The pack's texture has no transparency: its brightness says how thick the smoke is.
 const SHADER := """

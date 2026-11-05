@@ -37,7 +37,8 @@ const CEILING_ART: Array[Texture2D] = [
 	preload("res://assets/images/maze/ceiling_9.webp"),
 ]
 
-const BRAZIER_ART: Texture2D = preload("res://assets/images/maze/brazier.webp")
+const BRAZIER_SCENE: PackedScene = preload("res://assets/models/fantasy_props/Cauldron.gltf")
+const TORCH_SCENE: PackedScene = preload("res://assets/models/fantasy_props/Torch_Metal.gltf")
 const WEB_FULL: Array[Texture2D] = [
 	preload("res://assets/images/maze/web_full.png"),
 	preload("res://assets/images/maze/web_full_2.png"),
@@ -51,37 +52,42 @@ const HEIGHT := 1.5  # floor to ceiling, which keeps the 4:3 shape of the pictur
 const THICKNESS := 0.2  # of a wall
 const PILLAR_U := 0.095  # how much of the wall art's left side is its stone pillar
 const DIRS: Array[Vector3] = [Vector3(0, 0, -1), Vector3(1, 0, 0), Vector3(0, 0, 1), Vector3(-1, 0, 0)]  # N E S W
+const GLIDE_SECONDS := 0.25  # a step or a quarter turn
+const TURN_AROUND_SECONDS := 0.4
+const JUMP_DISTANCE := CELL * 1.5  # further than a step: a teleport or the like, which doesn't glide
+const TORCH_CLEAR := 0.45  # the camera stands near a wall, so anything on that wall this close is right behind it
+const CHEST_CLEAR := 0.65  # and is hidden, or the camera would look out through it
 const CAMERA_BACK := 0.45  # squares behind the middle of the square, so doors beside the party show
 const CAMERA_FOV := 95.0  # across the window, wide enough to see those doors
-const CEILING_TINT := Color(0.75, 0.75, 0.75)  # the ceiling art is painted bright
+const CEILING_TINT := Color(0.6, 0.6, 0.6)  # the ceiling art is painted bright
 
-const TORCH_COLOR := Color(1.0, 0.86, 0.68)
+# The torchlight is deep orange and dies off fast, so the Maze beyond it goes black, like the camp painting.
+const TORCH_COLOR := Color(1.0, 0.68, 0.42)
+const TORCH_FALLOFF := 1.6  # the light's attenuation; above 1 it is bright close by and gone sooner
 const TORCH_OFFSET := Vector3(0.35, 0.05, -0.15)  # held to the right, so the piers throw shadows
-const TORCH_ENERGY := 0.18
-const TORCH_REACH := 6.0
+const TORCH_ENERGY := 0.3
+const TORCH_REACH := 5.0
 const SPELL_REACH := 13.0  # MILWA and LOMILWA light the Maze farther
 const SPELL_ENERGY := 0.3
 const FLICKER := 0.06
-const AMBIENT := Color(0.025, 0.0225, 0.025)
+const AMBIENT := Color(0.006, 0.004, 0.003)
+const CONTRAST := 1.15
+const SATURATION := 1.0
 
-## From the Vefects pack, which its licence keeps out of the public repository, so it may be missing.
-const CAMPFIRE_SCENE := "res://Vefects/Free Fire VFX/Particles/VFX_Fire_01_Big.tscn"
-const CAMPFIRE_AHEAD := 0.15  # squares ahead of the middle of the square; nearer sits lower on screen
-const CAMP_TORCH := 0.35  # the torch burns low in camp, so the fire does the lighting
-const CAMPFIRE_SIZE := 0.2  # of the pack's fire, which would nearly reach this ceiling
-# The fire's own light. The pack's jumps from dark to full brightness between frames, which flickers on the floor.
-const CAMPFIRE_LIGHT_COLOR := Color(1.0, 0.55, 0.25)
-const CAMPFIRE_LIGHT_ENERGY := 0.9
-const CAMPFIRE_LIGHT_REACH := 4.0
-const CAMPFIRE_LIGHT_HEIGHT := 0.35
-const CAMPFIRE_FLICKER := 0.08
 
 var _camera: Camera3D
+var _goal_place := Vector3.ZERO  # where the camera is gliding to
+var _goal_yaw := 0.0
+var _goal_level := -1
+var _from_place := Vector3.ZERO  # and where it set off from
+var _from_yaw := 0.0
+var _glide_time := 0.0
+var _glide_length := 0.0  # 0 when not gliding
 var _torch: OmniLight3D
 var _level: MeshInstance3D
 # The ways up and down glow alike, so they can be found in the dark. Its colour matches the depths of the pit.
 const LADDER_LIGHT_COLOR := Color(0.28, 0.8, 1.0)
-const LADDER_LIGHT_ENERGY := 0.3
+const LADDER_LIGHT_ENERGY := 0.15
 const LADDER_LIGHT_REACH := 4.0
 const LADDER_LIGHT_HEIGHT := 0.5
 
@@ -91,49 +97,56 @@ const WEB_SIDE_CHANCE := 14  # percent of squares beside a plain wall
 const WEB_SIDE_WIDTH := 1.1
 const WEB_SHIFT := 0.5  # how far from the middle of the square they can hang, along the passage
 
-# Chests sit against plain walls here and there: real 3D objects, built from simple shapes, and only scenery for now.
+# Chests sit against plain walls here and there: the Fantasy Props pack's model, and only scenery for now.
+const CHEST_SCENE: PackedScene = preload("res://assets/models/fantasy_props/Chest_Wood.gltf")
 const CHEST_CHANCE := 3  # percent of squares
 const CHEST_WIDTH := 0.7
 const CHEST_DEPTH := 0.42
-const CHEST_BODY := 0.26  # height of the box under the lid
 const CHEST_GAP := 0.03  # from the wall
-const CHEST_WOOD := Color("7a4a3a")
-const CHEST_BANDS := Color("6fa3a0")
-const CHEST_LOCK := Color("c9a24a")
-const CHEST_INK := 0.007  # thickness of the dark outline, to match the painted art
+const CHEST_FOUND_WIDTH := 0.62  # the chest a fight leaves behind, standing in front of the party
+const CHEST_FOUND_AHEAD := 1.45  # from the camera, on the floor of the party's square
 
 # Braziers stand around each level, mostly in corners. Only those near the party burn, to keep the frame rate up.
 const BRAZIER_FIRE_SCENE := "res://Vefects/Free Fire VFX/Particles/VFX_Fire_01_Small_Simple.tscn"  # may be missing, like the campfire
 const BRAZIER_CORNER_CHANCE := 14  # percent of squares with a corner
 const BRAZIER_WALL_CHANCE := 2  # percent of squares with only a plain wall
 const BRAZIER_SPACING := 3  # squares between braziers, at least
-const BRAZIER_HEIGHT := 0.675
-# The art includes a soft shadow, so these place its solid part: its height, and the shadow's extra below and across.
-const BRAZIER_SOLID_PIXELS := 796.0
-const BRAZIER_SHADOW_BELOW := 31.0
-const BRAZIER_SHADOW_ACROSS := 0.0
+const BRAZIER_HEIGHT := 0.23
 const BRAZIER_INSET := 0.42  # from the wall to its middle
-const BRAZIER_BOWL := 0.585  # height of the coals
-const BRAZIER_FLAME_SIZE := 0.24
-const BRAZIER_LIGHT_FORWARD := 0.45  # out into the room, so the front of the art is lit
+const BRAZIER_BOWL := 0.2  # height of the coals, just inside the rim
+const BRAZIER_FLAME_SIZE := 0.2
+const BRAZIER_FLAME_SPREAD := 0.065  # how far from the middle of the cauldron its flames stand, to fill it
+const BRAZIER_FLAMES := 4  # one in the middle, and the rest around it
+const BRAZIER_LIGHT_FORWARD := 0.45  # out into the room, so the front of the cauldron is lit
 const BRAZIER_NEAR := 6  # squares within which a brazier burns
-const BRAZIER_LIGHT_COLOR := Color(1.0, 0.5, 0.22)
+const BRAZIER_LIGHT_COLOR := Color(1.0, 0.56, 0.3)
 const BRAZIER_LIGHT_ENERGY := 0.7
 const BRAZIER_LIGHT_REACH := 5.0
 const BRAZIER_FLICKER := 0.1
+const TORCH_LEVELS := [1]  # the levels with torches on their walls
+const TORCH_SPACING := 5  # squares between torches, at least
+const TORCH_FLAME_HEIGHT := 1.0  # the top of the torch, above the floor
+const TORCH_MODEL_HEIGHT := 0.3
+const TORCH_OFF_WALL := 0.09  # the middle of the torch out from the wall, which puts the back of its bracket against it
+const TORCH_FLAME_SIZE := 0.19
+const TORCH_FLAME_OUT := 0.048  # the model's cup stands out from its middle, away from the bracket
+const TORCH_FLAME_DROP := 0.042  # down into the cup
+const TORCH_LIGHT_FORWARD := 0.35  # out from the wall, so that it lights the room as well as the wall
+const TORCH_NEAR := 5  # squares within which a torch burns
+const TORCH_LIGHT_ENERGY := 0.4
+const TORCH_LIGHT_REACH := 4.0
 
 var _ladder_floor: MeshInstance3D
 var _ladder_light: OmniLight3D
 var _ladder_up_light: OmniLight3D
 var _chest_holder: Node3D
 var _chests: Array = []
-var _chest_mesh_shared: ArrayMesh
-var _campfire: Node3D
+var _found_chest: Node3D = null
 var _brazier_holder: Node3D
 var _braziers: Array = []
+var _torches: Array = []
 var _brazier_level := -1
 var _brazier_cell := Vector2i(-99, -99)
-var _campfire_light: OmniLight3D
 var _key := ""
 var _t := 0.0
 var _energy := TORCH_ENERGY
@@ -143,13 +156,16 @@ func _ready() -> void:
 	own_world_3d = true
 	msaa_3d = Viewport.MSAA_4X
 	render_target_update_mode = SubViewport.UPDATE_DISABLED
-	audio_listener_enable_3d = true  # the campfire crackles
+	audio_listener_enable_3d = true  # the braziers crackle
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color.BLACK
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = AMBIENT
 	env.glow_enabled = true  # only the fire is bright enough to glow
+	env.adjustment_enabled = true
+	env.adjustment_contrast = CONTRAST
+	env.adjustment_saturation = SATURATION
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
 	add_child(world_env)
@@ -159,7 +175,6 @@ func _ready() -> void:
 	add_child(_brazier_holder)
 	_chest_holder = Node3D.new()
 	add_child(_chest_holder)
-	_chest_mesh_shared = _chest_mesh()
 	_ladder_floor = MeshInstance3D.new()
 	_ladder_floor.mesh = _ladder_mesh()
 	add_child(_ladder_floor)
@@ -174,14 +189,10 @@ func _ready() -> void:
 	add_child(_camera)
 	_torch = OmniLight3D.new()
 	_torch.light_color = TORCH_COLOR
+	_torch.omni_attenuation = TORCH_FALLOFF
 	_torch.shadow_enabled = true
 	_torch.position = TORCH_OFFSET
 	_camera.add_child(_torch)
-	_campfire_light = OmniLight3D.new()
-	_campfire_light.light_color = CAMPFIRE_LIGHT_COLOR
-	_campfire_light.omni_range = CAMPFIRE_LIGHT_REACH
-	_campfire_light.visible = false
-	add_child(_campfire_light)
 	set_process(false)
 
 
@@ -189,35 +200,52 @@ func _ready() -> void:
 func set_active(on: bool) -> void:
 	render_target_update_mode = SubViewport.UPDATE_ALWAYS if on else SubViewport.UPDATE_DISABLED
 	set_process(on)
+	if not on:
+		finish_glide()
 
 
 func _process(delta: float) -> void:
 	_t += delta
+	_glide(delta)
 	_torch.light_energy = _energy * (1.0 + FLICKER * (sin(_t * 7.3) + sin(_t * 13.1 + 1.7)) * 0.5)
-	_campfire_light.light_energy = CAMPFIRE_LIGHT_ENERGY * (1.0 + CAMPFIRE_FLICKER * (sin(_t * 5.1) + sin(_t * 8.7 + 0.9)) * 0.5)
-	for b in _braziers:
+	for b in _braziers + _torches:
 		if b["fire_on"]:
-			b["light"].light_energy = BRAZIER_LIGHT_ENERGY * (1.0 + BRAZIER_FLICKER * (sin(_t * 5.7 + b["phase"]) + sin(_t * 9.3 + b["phase"] * 2.0)) * 0.5)
+			b["light"].light_energy = b["energy"] * (1.0 + BRAZIER_FLICKER * (sin(_t * 5.7 + b["phase"]) + sin(_t * 9.3 + b["phase"] * 2.0)) * 0.5)
 
 
-## Lights or puts out the campfire. Without the Vefects pack there is no fire to light.
-func set_campfire(on: bool) -> void:
-	if on and _campfire == null and ResourceLoader.exists(CAMPFIRE_SCENE):
-		_campfire = (load(CAMPFIRE_SCENE) as PackedScene).instantiate()
-		_campfire.scale = Vector3.ONE * CAMPFIRE_SIZE
-		for part in _campfire.get_children():
-			if "intensity_multiplier" in part:  # the pack's light, named differently from fire to fire
-				part.free()
-		add_child(_campfire)
-		_campfire_light.visible = true
-	elif not on and _campfire != null:
-		_campfire.queue_free()
-		_campfire = null
-		_campfire_light.visible = false
+## Eases to a stop, so that pressing on before it stops keeps the party moving.
+func _glide(delta: float) -> void:
+	if _glide_length <= 0.0:
+		return
+	_glide_time += delta
+	var t := minf(_glide_time / _glide_length, 1.0)
+	var eased := 1.0 - (1.0 - t) * (1.0 - t)
+	_show_camera(_from_place.lerp(_goal_place, eased), lerp_angle(_from_yaw, _goal_yaw, eased))
+	if t >= 1.0:
+		_glide_length = 0.0
 
 
-func has_campfire() -> bool:
-	return _campfire != null
+func finish_glide() -> void:
+	_glide_length = 0.0
+	_show_camera(_goal_place, _goal_yaw)
+
+
+static func _flat_distance(a: Vector3, b: Vector3) -> float:
+	return Vector2(a.x, a.z).distance_to(Vector2(b.x, b.z))
+
+
+## The ladder tile keeps facing the camera, so that it reads upright all through a turn.
+func _show_camera(place: Vector3, yaw: float) -> void:
+	_camera.position = place
+	_camera.rotation.y = yaw
+	_ladder_floor.rotation.y = yaw
+	for t in _torches:
+		var clear: bool = _flat_distance(t["stand"].position, place) >= TORCH_CLEAR
+		t["stand"].get_child(0).visible = clear
+		if t["fire"] != null:
+			t["fire"].visible = clear
+	for chest in _chests:
+		chest.visible = _flat_distance(chest.position, place) >= CHEST_CLEAR
 
 
 ## Puts the camera where the party is, rebuilding the level when it or what can be seen changes.
@@ -232,18 +260,33 @@ func sync_to_party() -> void:
 		_brazier_level = p["z"]
 		_build_braziers(Game.level())
 		_build_chests(Game.level())
+		_build_torches(Game.level())
 		_place_ladder(Game.level())
 	_update_braziers(Vector2i(p["x"], p["y"]))
-	_ladder_floor.rotation.y = camera_yaw(p["d"])  # turns are instant, so this never shows
-	_camera.position = camera_place(Vector2i(p["x"], p["y"]), p["d"])
-	_camera.rotation.y = camera_yaw(p["d"])
+	_aim_camera(camera_place(Vector2i(p["x"], p["y"]), p["d"]), camera_yaw(p["d"]), p["z"])
 	_torch.omni_range = SPELL_REACH if lit else TORCH_REACH
 	_energy = SPELL_ENERGY if lit else TORCH_ENERGY
-	if _campfire != null:
-		_energy *= CAMP_TORCH
-		_campfire.position = cell_centre(Vector2i(p["x"], p["y"])) + DIRS[p["d"]] * CAMPFIRE_AHEAD * CELL
-		_campfire_light.position = _campfire.position + Vector3.UP * CAMPFIRE_LIGHT_HEIGHT
 	_torch.light_energy = _energy
+	if _found_chest != null:
+		_place_found_chest()
+
+
+## Glides to a new place on this level, or jumps there if it isn't a step or a turn away.
+func _aim_camera(place: Vector3, yaw: float, level: int) -> void:
+	if place.is_equal_approx(_goal_place) and is_equal_approx(yaw, _goal_yaw) and level == _goal_level:
+		return
+	var jump := level != _goal_level or place.distance_to(_goal_place) > JUMP_DISTANCE or not is_processing()
+	var turn: float = absf(angle_difference(_goal_yaw, yaw))
+	_goal_place = place
+	_goal_yaw = yaw
+	_goal_level = level
+	if jump:
+		finish_glide()
+		return
+	_from_place = _camera.position
+	_from_yaw = _camera.rotation.y
+	_glide_time = 0.0
+	_glide_length = TURN_AROUND_SECONDS if turn > PI * 0.75 else GLIDE_SECONDS
 
 
 ## The ladder tile is apart from the level's mesh, as it turns to read upright whichever way the party faces.
@@ -332,6 +375,34 @@ static func brazier_spots(lv: MazeLevel) -> Array:
 	return spots
 
 
+## Where a level's wall torches hang: always the same places, spread out, each on a plain wall of a square
+## with nothing else in it. The order is scrambled so that they spread evenly, not along one edge.
+static func torch_spots(lv: MazeLevel) -> Array:
+	var spots := []
+	if not TORCH_LEVELS.has(lv.z):
+		return spots
+	var taken := {}
+	for spot in brazier_spots(lv) + chest_spots(lv):
+		taken[spot["c"]] = true
+	var squares := []
+	for y in MazeLevel.N:
+		for x in MazeLevel.N:
+			squares.append(Vector2i(x, y))
+	squares.sort_custom(func(a, b): return posmod(hash([lv.z, a, "torch"]), 100000) < posmod(hash([lv.z, b, "torch"]), 100000))
+	for c: Vector2i in squares:
+		if taken.has(c) or lv.flag(c.x, c.y, "dark") or lv.flag(c.x, c.y, "up") or lv.flag(c.x, c.y, "down"):
+			continue
+		if spots.any(func(s): return absi(s["c"].x - c.x) + absi(s["c"].y - c.y) < TORCH_SPACING):
+			continue
+		var first := posmod(hash([lv.z, c, "torch side"]), 4)
+		for i in 4:
+			var d := (first + i) % 4
+			if lv.wall(c.x, c.y, d) == 1:
+				spots.append({"c": c, "side": d, "pos": cell_centre(c) + DIRS[d] * (CELL / 2.0 - THICKNESS / 2.0)})
+				break
+	return spots
+
+
 ## Where a level's chests sit: always the same places, each against a plain wall, clear of braziers and ladders.
 static func chest_spots(lv: MazeLevel) -> Array:
 	var taken := {}
@@ -366,95 +437,57 @@ func _build_chests(lv: MazeLevel) -> void:
 		child.free()
 	_chests = []
 	for spot in chest_spots(lv):
-		var chest := MeshInstance3D.new()
-		chest.mesh = _chest_mesh_shared
+		var chest := _chest_model(CHEST_WIDTH)
 		chest.position = spot["pos"]
 		chest.rotation.y = chest_yaw(spot["side"])
 		_chest_holder.add_child(chest)
 		_chests.append(chest)
 
 
-func _chest_mesh() -> ArrayMesh:
-	var w := CHEST_WIDTH
-	var d := CHEST_DEPTH
-	var h := CHEST_BODY
-	var lid_turn := Basis(Vector3(0, 0, 1), PI / 2.0)
-	var band_x := w * 0.34
-	var mesh := ArrayMesh.new()
-	_chest_part(mesh, CHEST_WOOD, [
-		[_box(Vector3(w, h, d)), Transform3D(Basis(), Vector3(0, h / 2.0, 0))],
-		[_drum(d / 2.0, w), Transform3D(lid_turn, Vector3(0, h, 0))],
-	])
-	_chest_part(mesh, CHEST_BANDS, [
-		[_box(Vector3(0.07, h + 0.005, d + 0.024)), Transform3D(Basis(), Vector3(-band_x, h / 2.0, 0))],
-		[_box(Vector3(0.07, h + 0.005, d + 0.024)), Transform3D(Basis(), Vector3(band_x, h / 2.0, 0))],
-		[_drum(d / 2.0 + 0.012, 0.07), Transform3D(lid_turn, Vector3(-band_x, h, 0))],
-		[_drum(d / 2.0 + 0.012, 0.07), Transform3D(lid_turn, Vector3(band_x, h, 0))],
-		[_box(Vector3(w + 0.02, 0.035, d + 0.02)), Transform3D(Basis(), Vector3(0, h, 0))],
-	])
-	_chest_part(mesh, CHEST_LOCK, [
-		[_box(Vector3(0.1, 0.12, 0.03)), Transform3D(Basis(), Vector3(0, h - 0.01, d / 2.0 + 0.012))],
-	])
-	return mesh
+## The model at this width, its front toward +Z, standing on the holder's origin.
+func _chest_model(width: float) -> Node3D:
+	var holder := Node3D.new()
+	var model: Node3D = CHEST_SCENE.instantiate()
+	var box := _model_box(model)
+	var fit: float = width / box.size.x
+	model.scale = Vector3.ONE * fit
+	model.position = -Vector3(box.get_center().x, box.position.y, box.get_center().z) * fit
+	holder.add_child(model)
+	return holder
 
 
-func _box(size: Vector3) -> BoxMesh:
-	var box := BoxMesh.new()
-	box.size = size
-	return box
+## The chest a fight leaves behind, in front of the party for as long as the chest screens are up.
+func set_found_chest(on: bool) -> void:
+	if on and _found_chest == null:
+		_found_chest = _chest_model(CHEST_FOUND_WIDTH)
+		add_child(_found_chest)
+		_place_found_chest()
+	elif not on and _found_chest != null:
+		_found_chest.queue_free()
+		_found_chest = null
 
 
-func _drum(radius: float, length: float) -> CylinderMesh:
-	var drum := CylinderMesh.new()
-	drum.top_radius = radius
-	drum.bottom_radius = radius
-	drum.height = length
-	drum.radial_segments = 20
-	drum.rings = 1
-	return drum
+func has_found_chest() -> bool:
+	return _found_chest != null
 
 
-## One colour's worth of a chest, with a dark outline drawn behind it.
-func _chest_part(mesh: ArrayMesh, color: Color, pieces: Array) -> void:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for piece in pieces:
-		st.append_from(piece[0], 0, piece[1])
-	st.commit(mesh)
-	var ink := StandardMaterial3D.new()
-	ink.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ink.albedo_color = Color.BLACK
-	ink.cull_mode = BaseMaterial3D.CULL_FRONT
-	ink.grow = true
-	ink.grow_amount = CHEST_INK
-	var paint := StandardMaterial3D.new()
-	paint.albedo_color = color
-	paint.metallic_specular = 0.15
-	paint.roughness = 0.9
-	paint.next_pass = ink
-	mesh.surface_set_material(mesh.get_surface_count() - 1, paint)
+func _place_found_chest() -> void:
+	var p: Dictionary = Game.pos
+	var at := camera_place(Vector2i(p["x"], p["y"]), p["d"]) + DIRS[p["d"]] * CHEST_FOUND_AHEAD
+	_found_chest.position = Vector3(at.x, 0.0, at.z)
+	_found_chest.rotation.y = chest_yaw(p["d"])
 
 
 func _build_braziers(lv: MazeLevel) -> void:
 	for child in _brazier_holder.get_children():
 		child.free()
 	_braziers = []
-	var size := BRAZIER_ART.get_size()
+	_torches = []  # they stand in the same holder
 	for spot in brazier_spots(lv):
 		var stand := Node3D.new()
 		stand.position = spot["pos"]
 		_brazier_holder.add_child(stand)
-		var art := Sprite3D.new()
-		art.texture = BRAZIER_ART
-		art.pixel_size = BRAZIER_HEIGHT / BRAZIER_SOLID_PIXELS
-		art.offset = Vector2(-BRAZIER_SHADOW_ACROSS, size.y / 2.0 - BRAZIER_SHADOW_BELOW)
-		art.billboard = BaseMaterial3D.BILLBOARD_FIXED_Y
-		art.shaded = true
-		art.double_sided = true
-		art.render_priority = -1  # behind its flames, as both are see-through
-		art.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
-		art.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		stand.add_child(art)
+		stand.add_child(_cauldron_model())
 		var light := OmniLight3D.new()
 		light.light_color = BRAZIER_LIGHT_COLOR
 		light.light_energy = BRAZIER_LIGHT_ENERGY
@@ -464,23 +497,84 @@ func _build_braziers(lv: MazeLevel) -> void:
 		light.position = Vector3.UP * (BRAZIER_BOWL + 0.25) + into_room * BRAZIER_LIGHT_FORWARD
 		light.visible = false
 		stand.add_child(light)
-		_braziers.append({"c": spot["c"], "stand": stand, "light": light, "fire": null, "fire_on": false, "phase": float(posmod(hash(spot["c"]), 628)) / 100.0})
+		_braziers.append({"c": spot["c"], "stand": stand, "light": light, "fire": null, "fire_on": false, "near": BRAZIER_NEAR, "energy": BRAZIER_LIGHT_ENERGY, "flames": _brazier_flames, "phase": float(posmod(hash(spot["c"]), 628)) / 100.0})
 	_brazier_cell = Vector2i(-99, -99)
 
 
-## Burns the braziers near the party, and lets the rest go out.
+## The model at its height in the Maze, with the top of it at the holder's origin.
+func _torch_model() -> Node3D:
+	var holder := Node3D.new()
+	var model: Node3D = TORCH_SCENE.instantiate()
+	var box := _model_box(model)
+	var fit: float = TORCH_MODEL_HEIGHT / box.size.y
+	model.scale = Vector3.ONE * fit
+	model.position = -Vector3(box.get_center().x, box.end.y, box.get_center().z) * fit
+	holder.add_child(model)
+	for piece in [model] + model.find_children("*", "MeshInstance3D", true, false):
+		if piece is MeshInstance3D:
+			piece.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF  # its own light is right beside it
+	return holder
+
+
+## The model at its height in the Maze, standing on the holder's origin.
+func _cauldron_model() -> Node3D:
+	var holder := Node3D.new()
+	var model: Node3D = BRAZIER_SCENE.instantiate()
+	var box := _model_box(model)
+	var fit: float = BRAZIER_HEIGHT / box.size.y
+	model.scale = Vector3.ONE * fit
+	model.position = -Vector3(box.get_center().x, box.position.y, box.get_center().z) * fit
+	holder.add_child(model)
+	return holder
+
+
+func _model_box(model: Node3D) -> AABB:
+	var box := AABB()
+	for piece in [model] + model.find_children("*", "MeshInstance3D", true, false):
+		if piece is MeshInstance3D:
+			box = box.merge(piece.get_aabb())
+	return box
+
+
+func _build_torches(lv: MazeLevel) -> void:
+	for t in _torches:
+		t["stand"].free()
+	_torches = []
+	for spot in torch_spots(lv):
+		var into_room: Vector3 = -DIRS[spot["side"]]
+		var stand := Node3D.new()
+		stand.position = spot["pos"]
+		_brazier_holder.add_child(stand)
+		var torch := _torch_model()
+		torch.position = into_room * TORCH_OFF_WALL + Vector3.UP * TORCH_FLAME_HEIGHT
+		torch.rotation.y = atan2(into_room.x, into_room.z)
+		stand.add_child(torch)
+		var light := OmniLight3D.new()
+		light.light_color = BRAZIER_LIGHT_COLOR
+		light.light_energy = TORCH_LIGHT_ENERGY
+		light.omni_range = TORCH_LIGHT_REACH
+		light.shadow_enabled = true  # or it would shine through the walls
+		light.position = Vector3.UP * TORCH_FLAME_HEIGHT + into_room * TORCH_LIGHT_FORWARD
+		light.visible = false
+		stand.add_child(light)
+		_torches.append({"c": spot["c"], "stand": stand, "light": light, "fire": null, "fire_on": false, "near": TORCH_NEAR, "energy": TORCH_LIGHT_ENERGY,
+			"flames": _torch_flames.bind(into_room), "phase": float(posmod(hash(spot["c"]), 628)) / 100.0})
+	_brazier_cell = Vector2i(-99, -99)
+
+
+## Burns the braziers and torches near the party, and lets the rest go out.
 func _update_braziers(cell: Vector2i) -> void:
 	if cell == _brazier_cell:
 		return
 	_brazier_cell = cell
-	for b in _braziers:
-		var near: bool = maxi(absi(b["c"].x - cell.x), absi(b["c"].y - cell.y)) <= BRAZIER_NEAR
+	for b in _braziers + _torches:
+		var near: bool = maxi(absi(b["c"].x - cell.x), absi(b["c"].y - cell.y)) <= b["near"]
 		if near == b["fire_on"]:
 			continue
 		b["fire_on"] = near
 		b["light"].visible = near
 		if near:
-			b["fire"] = _brazier_flames()
+			b["fire"] = b["flames"].call()
 			if b["fire"] != null:
 				b["stand"].add_child(b["fire"])
 		elif b["fire"] != null:
@@ -488,16 +582,38 @@ func _update_braziers(cell: Vector2i) -> void:
 			b["fire"] = null
 
 
-## Just the flames: the brazier has its own light, and a whole level of crackling would be too much.
+func _torch_flames(into_room: Vector3) -> Node3D:
+	var fire := _flames()
+	if fire != null:
+		fire.scale = Vector3.ONE * TORCH_FLAME_SIZE
+		fire.position = Vector3.UP * (TORCH_FLAME_HEIGHT - TORCH_FLAME_DROP) + into_room * (TORCH_OFF_WALL + TORCH_FLAME_OUT)
+	return fire
+
+
+## Several flames together, as one small one wouldn't fill the cauldron.
 func _brazier_flames() -> Node3D:
+	if not ResourceLoader.exists(BRAZIER_FIRE_SCENE):
+		return null
+	var fires := Node3D.new()
+	fires.position = Vector3.UP * BRAZIER_BOWL
+	for i in BRAZIER_FLAMES:
+		var fire := _flames()
+		fire.scale = Vector3.ONE * BRAZIER_FLAME_SIZE
+		if i > 0:
+			var turn := TAU * i / (BRAZIER_FLAMES - 1)
+			fire.position = Vector3(cos(turn), 0.0, sin(turn)) * BRAZIER_FLAME_SPREAD
+		fires.add_child(fire)
+	return fires
+
+
+## Just the flames: each fire has its own light, and a whole level of crackling would be too much.
+func _flames() -> Node3D:
 	if not ResourceLoader.exists(BRAZIER_FIRE_SCENE):
 		return null
 	var fire: Node3D = (load(BRAZIER_FIRE_SCENE) as PackedScene).instantiate()
 	for part in fire.get_children():
 		if part is AudioStreamPlayer3D or "intensity_multiplier" in part or "istortion" in String(part.name):
 			part.free()
-	fire.scale = Vector3.ONE * BRAZIER_FLAME_SIZE
-	fire.position = Vector3.UP * BRAZIER_BOWL
 	return fire
 
 

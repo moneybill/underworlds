@@ -28,6 +28,7 @@ var items: Array = []  # each: {id, eq, known, cursed, bad, broken, ch}
 var spells: Array = []
 var sp := {"M": [0, 0, 0, 0, 0, 0, 0], "P": [0, 0, 0, 0, 0, 0, 0]}
 var honor := false
+var mercenary := false  # hired over a round of drinks, and doesn't raise the level of the next one
 # for the bio
 var last_level_date := ""  # as the player's calendar read
 var weapon_damage := {}  # total damage done, by what the weapon is called
@@ -319,7 +320,7 @@ func change_class(new_cls: String) -> void:
 func to_dict() -> Dictionary:
 	return {"id": id, "name": name, "race": race, "sex": sex, "portrait": portrait, "align": align, "cls": cls, "lvl": lvl, "xp": xp, "age": age,
 		"status": status, "loc": loc, "gold": gold, "hp": hp, "maxhp": maxhp, "stats": stats, "items": items,
-		"spells": spells, "sp": sp, "honor": honor, "last_level_date": last_level_date, "weapon_damage": weapon_damage, "spell_damage": spell_damage,
+		"spells": spells, "sp": sp, "honor": honor, "mercenary": mercenary, "last_level_date": last_level_date, "weapon_damage": weapon_damage, "spell_damage": spell_damage,
 		"kills": kills, "maze_trips": maze_trips, "gold_found": gold_found, "items_found": items_found}
 
 
@@ -350,6 +351,7 @@ static func from_dict(d: Dictionary) -> Character:
 		for v in d["sp"][school]:
 			c.sp[school].append(int(v))
 	c.honor = bool(d.get("honor", false))
+	c.mercenary = bool(d.get("mercenary", false))
 	c.last_level_date = String(d.get("last_level_date", ""))  # older saves have none of these
 	c.weapon_damage = _tally(d.get("weapon_damage", {}))
 	c.spell_damage = _tally(d.get("spell_damage", {}))

@@ -1,21 +1,34 @@
 class_name TownScreens
 extends RefCounted
-## The Castle and its shops: Gilgamesh's Tavern, Boltac's Trading Post, the Temple of Cant,
-## the Adventurer's Inn and the Edge of Town.
+## The Castle and its shops: the Red Dragon Inn, the Broken Anvil, the Cathedral of Rebirth,
+## the Drunken Slumber and the Edge of Town.
 
 const TAVERN_IMAGE := "res://assets/images/tavern.webp"
 const BOLTAC_IMAGE := "res://assets/images/boltac.webp"
-const GEAR_PLACES := [TAVERN_IMAGE, BOLTAC_IMAGE]  # the buildings that show the party with its equipment
+const GEAR_PLACES := [TAVERN_IMAGE, BOLTAC_IMAGE, INN_IMAGE]  # the buildings that show the party with its equipment
 const GEAR_SLOTS := [["Weapon", "W"], ["Helm", "H"], ["Armor", "A"], ["Shield", "S"]]  # in Data.ITEMS' slot letters
 const CARD_ALPHA := 0.625  # the painting shows through the cards
 const GEAR_FONT := 15
 const GEAR_FONT_MIN := 11
 const MAX_PARTY := 6
+const ROUND_COST_PER_LEVEL := 200
+const MERCENARY_LEVELS_UP := 3
+const MERCENARY_TITLE_CHANCE := 30  # percent, plus the mercenary's level
+const MERCENARY_NAME_TRIES := 20  # there are many thousands of names, so one will be free
 const BUY_OFFER := "I will haggle no further, this is my best price!"
 const SELL_OFFER := "This is my offer, take it or leave it..."
 const BUY_NOTE_FONT := 18  # four sizes under the body text
+const ROOM_KEYS := ["S", "C", "H", "P", "K"]  # the keys for Data.ROOMS, in its order
+const ROOM_NAME_WIDTH := 14
 const SELECT_HINT := "Click a party member to select them."
-const BOLTAC_TEXT := "The scent of cedar shavings, dank polishing oil, and cold iron hangs heavy in the air. Boltac's is the premier depot for adventurers seeking to upgrade their arsenal and spend their hard earned coin."
+const BOLTAC_TEXT := "The air is thick with heat, smoke and the rhythmic clang of hammer against anvil. Racks of freshly forged weapons, battered shields and polished armor line the walls, while shelves of tools, trinkets and adventuring supplies fill every available corner."
+# What each building says about itself when the mouse is over it on the town map.
+const TAVERN_ABOUT := "A rowdy tavern where ale flows freely, stories grow taller with every drink, and trouble is never far from the door. Meet new adventurers here and form your party."
+const INN_ABOUT := "A quiet refuge for weary adventurers and those who've had one too many. Rent a bed, sleep off your sins, and try not to remember last night's adventures."
+const CATHEDRAL_ABOUT := "A sacred sanctuary where the departed are granted another chance at life. Its priests offer salvation to those willing to pay the price of defying death."
+const ANVIL_ABOUT := "A bustling forge and trading post where weapons are sharpened, armor is sold, and wares exchanged. If it can be bought, sold, or hammered into shape, you'll find it here."
+const PROVING_ABOUT := "Every great adventure starts with a choice. Discover your calling, select your talents, and take your first steps towards becoming a legend."
+const EDGE_ABOUT := "A well-worn path leading away from the town and into the dark and foreboding woods."
 const INN_IMAGE := "res://assets/images/inn.webp"
 const TEMPLE_IMAGE := "res://assets/images/temple.webp"
 const EDGE_IMAGE := "res://assets/images/edge.webp"
@@ -23,7 +36,7 @@ const EDGE_IMAGE := "res://assets/images/edge.webp"
 var ui
 
 
-var _selected: Character = null  # the party member picked in the Tavern or at Boltac's
+var _selected: Character = null  # the party member picked in the Tavern or at the Broken Anvil
 
 
 func _init(root) -> void:
@@ -37,21 +50,21 @@ func castle() -> void:
 	Game.mode = "castle"
 	Game.save_game()
 	var has_party := not Game.party.is_empty()
-	var body := "Banners bearing your names hang from the battlements. Trebor's Elite Guard drinks free at Gilgamesh's." if Game.won \
+	var body := "Banners bearing your names hang from the battlements. Trebor's Elite Guard drinks free at the Red Dragon Inn." if Game.won \
 		else "Trebor's castle rises over the maze he claims he built on purpose. " + ("Your party waits by the gate." if has_party else "No party has been formed.")
-	var need_party := "Form a party at Gilgamesh's Tavern first."
+	var need_party := "Form a party at the Red Dragon Inn first."
 	ui.show_screen({"title": "Castle", "where": "Castle", "view": "castle", "map": true, "body": ui.flav(body), "opts": [
-		{"k": "G", "label": "GILGAMESH'S TAVERN", "fn": tavern},
-		{"k": "A", "label": "ADVENTURER'S INN", "dis": not has_party, "why": need_party, "fn": inn},
-		{"k": "B", "label": "BOLTAC'S TRADING POST", "dis": not has_party, "why": need_party, "fn": boltac},
-		{"k": "T", "label": "TEMPLE OF CANT", "dis": not has_party, "why": need_party, "fn": temple},
-		{"k": "R", "label": "TRAINING GROUNDS", "fn": ui.chars.training},
+		{"k": "G", "label": "THE RED DRAGON INN", "about": TAVERN_ABOUT, "fn": tavern},
+		{"k": "A", "label": "THE DRUNKEN SLUMBER", "about": INN_ABOUT, "dis": not has_party, "why": need_party, "fn": inn},
+		{"k": "B", "label": "THE BROKEN ANVIL", "about": ANVIL_ABOUT, "dis": not has_party, "why": need_party, "fn": boltac},
+		{"k": "T", "label": "CATHEDRAL OF REBIRTH", "about": CATHEDRAL_ABOUT, "dis": not has_party, "why": need_party, "fn": temple},
+		{"k": "R", "label": "PROVING GROUNDS", "about": PROVING_ABOUT, "fn": ui.chars.training},
 		{"k": "M", "label": "MAZE", "dis": Game.living().is_empty(), "why": need_party, "fn": ui.mz.enter_maze},
-		{"k": "E", "label": "EDGE OF TOWN", "fn": edge_of_town},
+		{"k": "E", "label": "EDGE OF TOWN", "about": EDGE_ABOUT, "fn": edge_of_town},
 	]})
 
 
-# ---------- Gilgamesh's Tavern ----------
+# ---------- The Red Dragon Inn ----------
 func tavern() -> void:
 	ui.place_image = TAVERN_IMAGE
 	var ps := Game.party_chars()
@@ -59,16 +72,116 @@ func tavern() -> void:
 		_selected = null
 	var chosen := _selected != null
 	var opts := [
-		{"k": "A", "label": "ADD", "in_widget": true, "small": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
+		{"k": "A", "label": "ADD", "in_widget": true, "small": true, "blue": true, "hide": ps.size() >= MAX_PARTY, "fn": func(): ui.chars.roster_pick("Add whom?", _can_add, _add, tavern)},
 		{"k": "R", "label": "DROP", "in_widget": true, "small": true, "hide": not chosen, "fn": _remove.bind(_selected)},
+		{"k": "B", "label": "BUY ROUND (%d)" % round_cost(), "in_widget": true, "small": true, "hide": ps.is_empty(), "dis": not can_buy_round(), "fn": buy_round},
 		{"k": "D", "label": "DIVVY GOLD", "in_widget": true, "small": true, "gear_at": "center", "dis": ps.is_empty(), "fn": _divvy},
 		{"k": "I", "label": "INSPECT", "in_widget": true, "small": true, "gear_at": "right", "hide": not chosen, "fn": ui.chars.inspect.bind(_selected, "tavern", tavern)},
 		{"k": "L", "label": "EXIT", "fn": castle},
 	]
 	var hint := SELECT_HINT if not ps.is_empty() else "Add adventurers to form a party."
-	ui.show_screen({"title": "Gilgamesh's Tavern", "where": "Gilgamesh's Tavern", "view": "tavern", "opts": opts,
+	ui.show_screen({"title": "The Red Dragon Inn", "where": "The Red Dragon Inn", "view": "tavern", "opts": opts,
 		"gear_pick": select_member, "gear_hint": hint,
 		"body": ui.flav("Smoke hangs over the scarred tables and a haunch of boar turns over the fire. Small groups of adventurers talk in low voices.")})
+
+
+## What the next round is based on: the party's best, leaving out mercenaries, so that hiring one doesn't
+## make the next one stronger. A party of nothing but mercenaries counts as level 1.
+func highest_level() -> int:
+	var best := 1
+	for c in Game.party_chars():
+		if not c.mercenary:
+			best = maxi(best, c.lvl)
+	return best
+
+
+func round_cost() -> int:
+	return highest_level() * ROUND_COST_PER_LEVEL
+
+
+func _party_gold() -> int:
+	var total := 0
+	for c in Game.party_chars():
+		total += c.gold
+	return total
+
+
+## There must be room for a mercenary to join, and the gold to pay.
+func can_buy_round() -> bool:
+	return not Game.party.is_empty() and Game.party.size() < MAX_PARTY and not Game.roster_full() and _party_gold() >= round_cost()
+
+
+## The party pays between them, and a mercenary is drawn over by the drinks.
+func buy_round() -> void:
+	if not can_buy_round():
+		return
+	var owed := round_cost()
+	for c in Game.party_chars():
+		var paid: int = mini(c.gold, owed)
+		c.gold -= paid
+		owed -= paid
+	Game.say("THE PARTY BUYS A ROUND FOR %d GOLD." % round_cost(), "gold")
+	Game.save_game()
+	var merc := make_mercenary()
+	var opts := [
+		{"k": "Y", "label": "YES", "fn": _hire.bind(merc)},
+		{"k": "N", "label": "NO", "fn": _decline.bind(merc)},
+	]
+	tavern()
+	ui.show_popup({"title": "A mercenary offers to join", "opts": opts}, CharacterSheet.build.bind(ui, merc, opts))
+
+
+## Off the roster until hired. Always 3 levels above the party's best, of any race and either sex.
+func make_mercenary() -> Character:
+	var race: String = Dice.pick(Data.RACES.keys())
+	var sex: String = Dice.pick(["MALE", "FEMALE"])
+	var level := highest_level() + MERCENARY_LEVELS_UP
+	var aligns: Array = Data.alignments_for(race).filter(func(al): return Game.party_align() == "N" or al == "NEUTRAL" or al.substr(0, 1) == Game.party_align())
+	var al: String = Dice.pick(aligns)
+	var st := {}
+	for s in Data.STATS:
+		st[s] = Dice.roll("3d6") + int(Data.RACE_BONUS[race].get(s, 0))
+	var classes := Character.eligible(st, al)
+	if classes.is_empty():
+		st["str"] = maxi(st["str"], Data.CLASSES["FIGHTER"]["req"]["str"])
+		classes = ["FIGHTER"]
+	var cls: String = Dice.pick(classes)
+	var merc: Character = Game.make_char(_mercenary_name(sex, level), race, al, st, cls, sex, Dice.pick(Data.portraits(sex)))
+	Game.roster.erase(merc)
+	Game.next_id -= 1
+	merc.mercenary = true
+	for i in level - 1:
+		merc.level_up()
+	merc.xp = Data.xp_needed(cls, level - 1)
+	return merc
+
+
+## A first name for their sex, half the time with a last name, and with a title (30 + level)% of the time.
+func _mercenary_name(sex: String, level: int) -> String:
+	var titled: bool = Dice.chance(MERCENARY_TITLE_CHANCE + level)
+	for attempt in MERCENARY_NAME_TRIES:
+		var full: String = Dice.pick(Data.FEMALE_NAMES if sex == "FEMALE" else Data.MALE_NAMES)
+		if Dice.chance(Data.LAST_NAME_CHANCE):
+			full = "%s %s" % [full, Dice.pick(Data.LAST_NAMES)]
+		if titled:
+			full = "%s %s" % [Dice.pick(Data.FEMALE_TITLES if sex == "FEMALE" else Data.MALE_TITLES), full]
+		if not Game.roster.any(func(o): return o.name == full):
+			return full
+	return "%s %d" % [Data.LAST_NAMES[0], Game.next_id]
+
+
+func _hire(merc: Character) -> void:
+	Game.roster.append(merc)
+	Game.next_id = maxi(Game.next_id, merc.id + 1)
+	Game.party.append(merc.id)
+	Game.save_game()
+	Game.say("%s JOINS THE PARTY." % merc.name, "ok")
+	tavern()
+
+
+func _decline(merc: Character) -> void:
+	Game.say("%s SHRUGS AND RETURNS TO THE DRINK." % merc.name)
+	tavern()
 
 
 func select_member(c: Character) -> void:
@@ -101,7 +214,7 @@ func _divvy() -> void:
 	tavern()
 
 
-# ---------- Boltac's Trading Post ----------
+# ---------- The Broken Anvil ----------
 ## The party with what each member has equipped.
 func gear_grid(on_click := Callable(), click_dead := true) -> GridContainer:
 	return PartyCards.grid(_fill_gear_cell, Game.party_chars().find(_selected), 4 + GEAR_SLOTS.size(), on_click, click_dead, CARD_ALPHA)
@@ -142,7 +255,7 @@ func boltac() -> void:
 		_selected = null
 	var c := _selected
 	var chosen := c != null
-	ui.show_screen({"title": "Boltac's Trading Post", "where": "Boltac's Trading Post", "view": "shop",
+	ui.show_screen({"title": "The Broken Anvil", "where": "The Broken Anvil", "view": "shop",
 		"gear_pick": shop, "gear_hint": SELECT_HINT,
 		"body": ui.flav(BOLTAC_TEXT),
 		"opts": [
@@ -155,7 +268,7 @@ func boltac() -> void:
 		]})
 
 
-## Selects a party member at Boltac's; the shop's other screens return here too.
+## Selects a party member at the Broken Anvil; the shop's other screens return here too.
 func shop(c: Character) -> void:
 	_selected = c
 	boltac()
@@ -270,7 +383,7 @@ func _do_fee(c: Character, it: Dictionary, kind: String, fee: int) -> void:
 	shop(c)
 
 
-# ---------- Temple of Cant ----------
+# ---------- Cathedral of Rebirth ----------
 func _tithe(c: Character) -> int:
 	return int({"DEAD": 250, "ASHES": 500, "PARALYZED": 100, "ASLEEP": 10}.get(c.status, 0)) * c.lvl
 
@@ -284,7 +397,7 @@ func temple() -> void:
 	var body: String = ui.flav("Robed priests chant before the altar. Their healing is certain, except for the dead. Raising the dead may fail, and ashes are a last chance.")
 	if items.is_empty():
 		body += "\n\nNo one in your party needs the priests."
-	ui.choose_list("Temple of Cant", body, items, castle)
+	ui.choose_list("Cathedral of Rebirth", body, items, castle)
 
 
 func _temple_who_pays(c: Character) -> void:
@@ -319,7 +432,7 @@ func _temple_heal(payer: Character, c: Character) -> void:
 			msg = "%s RISES FROM THE ASHES, FULLY HEALED!" % c.name
 		else:
 			c.status = "LOST"
-			msg = "%s IS LOST FOREVER. THE TEMPLE GIVES A FREE BURIAL." % c.name
+			msg = "%s IS LOST FOREVER. THE CATHEDRAL GIVES A FREE BURIAL." % c.name
 			Game.party.erase(c.id)
 			Game.roster.erase(c)
 	else:
@@ -327,21 +440,39 @@ func _temple_heal(payer: Character, c: Character) -> void:
 		msg = "%s IS WELL AGAIN." % c.name
 	c.age += 52
 	Game.save_game()
-	ui.say("Temple of Cant", "MURMUR - CHANT - PRAY - INVOKE!\n\n" + ui.esc(msg), temple)
+	ui.say("Cathedral of Rebirth", "MURMUR - CHANT - PRAY - INVOKE!\n\n" + ui.esc(msg), temple)
 
 
-# ---------- Adventurer's Inn ----------
+# ---------- The Drunken Slumber ----------
 func inn() -> void:
 	ui.place_image = INN_IMAGE
-	ui.pick_member("Adventurer's Inn: who checks in?", castle, inn_rooms, func(c): return c.is_alive() and c.status != "PARALYZED")
+	if not Game.party_chars().has(_selected) or not _can_rest(_selected):
+		_selected = null
+	var c := _selected
+	var opts := []
+	for i in Data.ROOMS.size():
+		var r: Array = Data.ROOMS[i]
+		opts.append({"k": ROOM_KEYS[i], "label": r[0], "in_widget": true, "small": true, "hide": c == null, "dis": c != null and r[2] > c.gold, "fn": stay.bind(c, r[1], r[2])})
+	opts.append({"k": "L", "label": "EXIT", "fn": castle})
+	ui.show_screen({"title": "The Drunken Slumber", "where": "The Drunken Slumber", "gear_pick": select_guest, "gear_hint": SELECT_HINT, "opts": opts,
+		"body": ui.flav("Each room restores hit points by the week. Every week in bed is a week older.") + "\n\n" + "\n".join(_room_prices()) + ("" if c == null else "\n\n%s IS AGE %d." % [c.name, c.age / 52])})
 
 
-func inn_rooms(c: Character) -> void:
-	var items := []
-	for r in Data.ROOMS:
-		items.append({"label": r[0], "right": ("%d HP/WEEK · %d GP" % [r[1], r[2]]) if r[1] > 0 else "FREE · NO HEALING", "dis": r[2] > c.gold, "fn": stay.bind(c, r[1], r[2])})
-	ui.choose_list("Welcome, %s" % c.name, "HITS %d/%d · GOLD %d · AGE %d\n" % [c.hp, c.maxhp, c.gold, c.age / 52] + ui.flav("Each room restores hit points by the week. Every week in bed is a week older."),
-		items, inn, [{"k": "P", "label": "POOL GOLD", "fn": func(): Game.pool_gold(c); inn_rooms(c)}])
+## A line for each room, its name lined up with what it costs.
+func _room_prices() -> Array:
+	return Data.ROOMS.map(func(r): return String(r[0]).rpad(ROOM_NAME_WIDTH) + ("%d HP/WEEK, %d GP" % [r[1], r[2]] if r[1] > 0 else "FREE, NO HEALING"))
+
+
+func _can_rest(c: Character) -> bool:
+	return c.is_alive() and c.status != "PARALYZED"
+
+
+func select_guest(c: Character) -> void:
+	if not _can_rest(c):
+		Game.say("%s CANNOT CHECK IN." % c.name)
+		return
+	_selected = c
+	inn()
 
 
 func stay(c: Character, heal: int, fee: int) -> void:
@@ -363,7 +494,8 @@ func stay(c: Character, heal: int, fee: int) -> void:
 	if not el.is_empty() and c.lvl > 1:
 		lines.append("%s NOW QUALIFIES AS: %s." % [c.name, ", ".join(el)])
 	Game.save_game()
-	ui.say("Adventurer's Inn", ui.esc("\n".join(lines)), inn)
+	ui.show_screen({"title": "The Drunken Slumber", "where": "The Drunken Slumber", "gear_hint": " ", "body": ui.esc("\n".join(lines)),  # the blank hint keeps the cards where they were
+		"opts": [{"k": "Enter", "label": "CONTINUE", "fn": inn}]})
 
 
 # ---------- Edge of Town ----------

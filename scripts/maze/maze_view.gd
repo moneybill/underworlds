@@ -49,6 +49,21 @@ const MONSTER_ART := {
 	"PRIEST1": preload("res://assets/images/monsters/priest.webp"),
 	"PRIEST5": preload("res://assets/images/monsters/priest.webp"),
 }
+## Camp is a painting, cut to the window's shape around the fire, with the pack's fire burning on it.
+const CAMP_ART := preload("res://assets/images/camp.webp")
+const CAMP_CROP := Rect2(0, 192, 1024, 768)  # of the painting
+const CAMP_FIRE_SCENE := "res://Vefects/Free Fire VFX/Particles/VFX_Fire_01_Small.tscn"
+const CAMP_FIRE_BASE := Vector2(237, 225)  # the middle of the logs, on the canvas
+const CAMP_FIRE_WINDOW := Vector2(130, 130)  # on the canvas, with room for the fire's height
+const CAMP_FIRE_VIEW_SIZE := 3.0  # the window's height in the fire's world: the smaller, the bigger the fire
+const CAMP_FIRE_STRETCH := Vector3(1.4, 1.7, 1.4)  # taller than the pack's fire, and wider
+const CAMP_SIDE_FLAMES := 0.32  # how far the two smaller flames stand to each side, widening the fire's foot
+const CAMP_SIDE_SIZE := 0.75  # of the main fire
+const CAMP_SMOKE := "Ashes"  # the pack's rising smoke and ash
+const CAMP_SMOKE_SPEED := 2.0  # times the rest of the fire
+const CAMP_FIRE_SPEED := 0.4
+const CAMP_FIRE_SOUND := -8.0
+const FADE_TIME := 0.45  # seconds to fade to black, and again to fade back
 const CARD_SINGLE := 320.0  # a lone group of monsters
 const CARD_PAIR := 225.0  # each of two groups, nearly filling the window's width
 const CARD_GRID := 160.0  # each of three or four groups
@@ -60,20 +75,27 @@ const PLAQUE_EDGE := Color("a9824a")
 const PLAQUE_FONT_MAX := 18
 const PLAQUE_FONT_MIN := 9
 const BADGE_FONT := 15
-const RESULT_HOLD := 2.0  # seconds a fight result stays up
+const RESULT_HOLD := 1.0  # seconds a fight result stays up
 const RESULT_FADE := 0.5  # and then takes to fade out
 const FAST_RESULT_HOLD := 0.25  # the same, with Fast Combat Results on
 const FAST_RESULT_FADE := 0.25
 const STEP_GAP := 0.8  # seconds between attacks in a round
 const FAST_STEP_GAP := 0.2
-const RESULT_FONT := 20
+const RESULT_FONT := 44
 const RESULT_WRAP_FONT := 12  # smaller than this and the result breaks onto two lines instead
-const RESULT_LINE := 30.0
+const RESULT_LINE := 62.0
+const MARK_WIDTH := 5.0  # the outline around the monsters attacking and being attacked
 
 var kind := "castle"
 var mono: Font
 var battle: Battle = null
 var world: MazeWorld
+var camp_fire: FireWindow = null
+var _black: ColorRect  # over everything in the window, for fading
+var _fading := false
+static var instant_fades := false  # the self-test skips the wait
+
+signal fade_done
 var _targets: Array = []  # the groups that can be clicked now, by their place in battle.groups
 var _on_target := Callable()
 var _hover := -1
@@ -81,6 +103,10 @@ var _results: Array = []  # what is showing on the monsters now
 var _result_groups: Array = []  # the groups the results are for, kept on screen even if just killed
 var _result_time := 0.0
 var _on_results_done := Callable()
+var _beats: Array = []  # what happens later in this attack: {at, fn}
+var _mark_by := -1  # the monster group attacking now
+var _mark_on := -1  # and the one being attacked
+var shown_counts := {}  # group -> how many it still shows, until the blow that kills lands
 var _step := Callable()  # plays the next attack of a round
 var _next_step := 0.0
 
@@ -93,8 +119,38 @@ func _ready() -> void:
 	resized.connect(_fit_world)
 	get_viewport().size_changed.connect(_fit_world)
 	visibility_changed.connect(_update_world)
+	_black = ColorRect.new()
+	_black.color = Color.BLACK
+	_black.modulate.a = 0.0
+	_black.z_index = 10  # above the fire, which is added later
+	_black.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_black.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_black)
 	set_process(false)
 	_fit_world()
+
+
+## Fades the window to black, calls change, and fades back. A second call while fading is ignored.
+func fade_through_black(change: Callable) -> void:
+	if _fading:
+		return
+	if instant_fades:
+		change.call()
+		return
+	_fading = true
+	var out := create_tween()
+	out.tween_property(_black, "modulate:a", 1.0, FADE_TIME)
+	await out.finished
+	change.call()
+	var back := create_tween()
+	back.tween_property(_black, "modulate:a", 0.0, FADE_TIME)
+	await back.finished
+	_fading = false
+	fade_done.emit()
+
+
+func is_fading() -> bool:
+	return _fading
 
 
 func show_view(k: String) -> void:
@@ -106,13 +162,31 @@ func show_view(k: String) -> void:
 
 
 func _shows_maze() -> bool:
-	return kind == "maze" or kind == "camp" or kind == "combat" or kind == "chest"
+	return kind == "maze" or kind == "combat" or kind == "chest"
 
 
 func _update_world() -> void:
 	if world != null:
 		world.set_active(_shows_maze() and is_visible_in_tree())
-		world.set_campfire(kind == "camp" and is_visible_in_tree())
+		world.set_found_chest(kind == "chest" and is_visible_in_tree())
+	var camping := kind == "camp" and is_visible_in_tree()
+	if camping and camp_fire == null:
+		camp_fire = FireWindow.make(CAMP_FIRE_SCENE, CAMP_FIRE_VIEW_SIZE, CAMP_FIRE_SPEED, CAMP_FIRE_SOUND)
+		if camp_fire != null:
+			camp_fire.fire().scale = CAMP_FIRE_STRETCH
+			for side in [-1.0, 1.0]:
+				camp_fire.add_side_flames(side * CAMP_SIDE_FLAMES, CAMP_SIDE_SIZE)
+			camp_fire.speed_up(CAMP_SMOKE, CAMP_SMOKE_SPEED)
+			add_child(camp_fire)
+			_place_camp_fire()
+	elif not camping and camp_fire != null:
+		camp_fire.queue_free()
+		camp_fire = null
+
+
+func _place_camp_fire() -> void:
+	if camp_fire != null:
+		camp_fire.place(view_point(CAMP_FIRE_BASE), CAMP_FIRE_WINDOW * _canvas_scale())
 
 
 ## Shows results on their monsters, then calls on_done. Showing another screen cancels this.
@@ -135,6 +209,29 @@ func start_steps(groups: Array, step: Callable) -> void:
 	queue_redraw()
 	if _step.is_valid():
 		_step.call()
+
+
+## Calls fn this many seconds from now. Showing another screen cancels it.
+func after(seconds: float, fn: Callable) -> void:
+	_beats.append({"at": _result_time + seconds, "fn": fn})
+	_beats.sort_custom(func(a, b): return a["at"] < b["at"])
+
+
+## The next attack waits this long.
+func hold_next_step(seconds: float) -> void:
+	_next_step = _result_time + seconds
+
+
+## Outlines the monster group attacking and the one being attacked, or -1 for none.
+func set_marks(by: int, on: int) -> void:
+	_mark_by = by
+	_mark_on = on
+	queue_redraw()
+
+
+func clear_words() -> void:
+	_results = []
+	queue_redraw()
 
 
 ## Each result keeps its own time, so the next attack needn't wait for it to fade.
@@ -168,6 +265,10 @@ func _clear_results() -> void:
 	_result_groups = []
 	_step = Callable()
 	_on_results_done = Callable()
+	_beats = []
+	_mark_by = -1
+	_mark_on = -1
+	shown_counts = {}
 	set_process(false)
 
 
@@ -176,11 +277,13 @@ func _process(delta: float) -> void:
 	queue_redraw()
 	var life := _result_hold() + _result_fade()
 	_results = _results.filter(func(res): return _result_time - res["born"] < life)
+	while not _beats.is_empty() and _beats[0]["at"] <= _result_time:
+		_beats.pop_front()["fn"].call()
 	if _step.is_valid():
 		if _result_time >= _next_step:
 			_next_step = _result_time + _step_gap()
 			_step.call()
-	elif _results.is_empty() and _on_results_done.is_valid():
+	elif _results.is_empty() and _beats.is_empty() and _on_results_done.is_valid():
 		var on_done := _on_results_done
 		_clear_results()
 		on_done.call()
@@ -252,6 +355,7 @@ func view_point(canvas: Vector2) -> Vector2:
 func _fit_world() -> void:
 	var px := size * get_global_transform_with_canvas().get_scale()
 	world.size = Vector2i(maxi(1, int(px.x)), maxi(1, int(px.y)))
+	_place_camp_fire()
 	queue_redraw()
 
 
@@ -264,8 +368,8 @@ func _draw() -> void:
 		"camp": _camp()
 		"combat": _combat()
 		"chest": _chest()
-		"tavern": _castle("GILGAMESH'S"); draw_rect(Rect2(150, 230, 30, 26), Color(TORCH, .35)); draw_rect(Rect2(300, 230, 30, 26), Color(TORCH, .35))
-		"shop": _castle("BOLTAC'S"); _txt("OPEN AROUND THE CLOCK", 240, 300, 22, TORCH)
+		"tavern": _castle("RED DRAGON INN"); draw_rect(Rect2(150, 230, 30, 26), Color(TORCH, .35)); draw_rect(Rect2(300, 230, 30, 26), Color(TORCH, .35))
+		"shop": _castle("BROKEN ANVIL"); _txt("OPEN AROUND THE CLOCK", 240, 300, 22, TORCH)
 		"train": _train()
 		"edge": _edge()
 		_: _castle("HOME OF THE ELITE GUARD" if Game.won else "TREBOR'S CASTLE")
@@ -333,7 +437,7 @@ func _train() -> void:
 	for x in [80, 200, 320]:
 		draw_rect(Rect2(x, 220, 12, 80), Color("5a4a36"))
 		draw_rect(Rect2(x - 16, 236, 44, 8), Color("5a4a36"))
-	_txt("TRAINING GROUNDS", 240, 60, 32, INK)
+	_txt("PROVING GROUNDS", 240, 60, 32, INK)
 
 
 func _edge() -> void:
@@ -400,19 +504,7 @@ func _map() -> void:
 
 
 func _camp() -> void:
-	_maze(false)
-	if not world.has_campfire():
-		_drawn_campfire()
-	_txt("CAMP", 240, 60, 40, INK)
-
-
-## Stands in for the real fire when the Vefects pack isn't installed.
-func _drawn_campfire() -> void:
-	draw_rect(Rect2(0, 0, W, H), Color("05060a", .55))
-	var f := Vector2(240, 300)
-	draw_rect(Rect2(f.x - 30, f.y, 60, 8), Color("5a4a36"))
-	for fl in [[BLOOD, 26, 54], [TORCH, 18, 40], [INK, 8, 22]]:
-		_poly(PackedVector2Array([Vector2(f.x - fl[1], f.y), Vector2(f.x, f.y - fl[2]), Vector2(f.x + fl[1], f.y)]), fl[0])
+	draw_texture_rect_region(CAMP_ART, Rect2(0, 0, W, H), CAMP_CROP)
 
 
 # ---------- combat ----------
@@ -424,6 +516,10 @@ func _combat() -> void:
 	var rects := card_rects(alive_groups.size())
 	for i in rects.size():
 		_monster_card(battle.groups[alive_groups[i]], rects[i])
+		if alive_groups[i] == _mark_by:
+			draw_rect(rects[i].grow(1.0), TORCH, false, MARK_WIDTH)
+		elif alive_groups[i] == _mark_on:
+			draw_rect(rects[i].grow(1.0), BLOOD, false, MARK_WIDTH)
 		_show_results_on(alive_groups[i], rects[i])
 		if not _targets.is_empty():
 			_target_mark(alive_groups[i], rects[i])
@@ -454,7 +550,7 @@ static func card_rects(count: int) -> Array:
 
 
 func _monster_card(gp: Dictionary, r: Rect2) -> void:
-	var n := battle.live(gp).size()
+	var n: int = shown_counts.get(battle.groups.find(gp), battle.live(gp).size())
 	if MONSTER_ART.has(gp["id"]):
 		draw_texture_rect(MONSTER_ART[gp["id"]], r, false)
 	else:
@@ -547,8 +643,11 @@ func _badge(text: String, corner: Vector2, col: Color, on_right: bool) -> void:
 	draw_string(mono, Vector2(r.position.x, r.end.y - 5.0), text, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, BADGE_FONT, col)
 
 
+## The real chest stands in the Maze, unless the party is in the dark, where the Maze isn't drawn.
 func _chest() -> void:
 	_combat()
+	if not Game.level().flag(Game.pos["x"], Game.pos["y"], "dark"):
+		return
 	_poly(PackedVector2Array([Vector2(160, 210), Vector2(320, 210), Vector2(320, 290), Vector2(160, 290)]), Color("4a3420"), TORCH)
 	var lid := PackedVector2Array([Vector2(160, 210)])
 	for i in range(1, 12):

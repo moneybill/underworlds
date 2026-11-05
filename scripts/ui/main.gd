@@ -4,10 +4,15 @@ extends Control
 
 const KIND_COLORS := {"hit": "d6563f", "mag": "8bace6", "gold": "e3a33f", "ok": "93c07e", "": "9c947f"}
 const PORTRAIT_SIZE := 300.0
+const UNDER_VIEW_DROP := 3.7  # a big button under the picture sits this much lower (5 pixels on a 1920 wide screen)
 const BACKDROP_COLUMN := 540.0  # width of the text column over a painted backdrop, clear of its center
 const GEAR_COLUMN := 600.0  # width of the party's equipment over a painting
 const GEAR_PANEL_MARGIN := 8.0  # inside its panel
-const SHEET_MARGIN := 8.0  # inside the character sheet's panel
+const SHEET_MARGIN := 8.0  # inside the popup window
+const POPUP_ALPHA := 1.0
+const POPUP_EDGE := 3
+const TITLE_FONT := 28  # a screen's title
+const POPUP_TITLE_FONT := TITLE_FONT - 2
 const GEAR_PANEL_ALPHA := 0.51  # the painting shows through, more so than through the text column
 const BACKDROP_PANEL_ALPHA := 0.775
 const CONFIRM_WIDTH := 560.0
@@ -23,15 +28,31 @@ const PAGER_FILL := UiStyle.C_BROWN  # to stand apart from the list above
 const PAGER_EDGE := UiStyle.C_BROWN_EDGE
 const PAGER_EXIT_FILL := Color("6e2a26")  # oxblood
 const PAGER_EXIT_EDGE := Color("a04a42")
+const GEAR_BUTTON_GAP := 4  # small enough for the Inn's five rooms to fit under the cards
 const GEAR_BUTTONS_HEIGHT := 40.0  # the row under the cards keeps its height with no buttons in it
 const GEAR_LEFT := 570.0  # just right of the text column
 const GEAR_TOP := 46.0  # just under the test switches
 const CARD_MARGIN := 16.0  # a card's edges and padding, left and right together
 const BACKDROP_TABLE_FONT := 15  # lets the longest party row fit that column on one line
-const LOG_HEIGHT := 120.0
+const DEBUG_TOP := 4.0
+const DEBUG_ARROW_SIZE := 14
+const DEBUG_GOLD := 500
+const DEBUG_CHEST_GOLD_MIN := 10
+const DEBUG_CHEST_GOLD_MAX := 100
+const ROW_NOTE_WIDTH := 320.0  # beside a big button, and short of BACK at the right of the row
+const ROW_NOTE_FONT := 18
+const INFO_SECONDS := 3.0  # how long the info window stays up after its newest line
+const INFO_WIDTH := 560.0
+const INFO_FONT := 16
+const INFO_MARGIN := 6.0  # from the bottom of the window
+const INFO_MAX_LINES := 8  # a burst of news keeps only its latest lines
+const INFO_LAYER := 10  # above every panel
+const INFO_PADDING := 16.0  # the window's edges and padding, left and right together
+const TOOL_SIZE := Vector2(40, 40)  # the small icon buttons on the Maze's picture
+const TOOL_ICON_SIZE := 24
+const INFO_GAP := 2.0  # between the Maze's picture and the window under it
+const TABLE_FONT := 18  # lets the longest party row fit the right-hand column on one line
 const SOUND_VOICES := 4  # sounds that can overlap
-const FIGHT_LOG_HEIGHT := 50.0  # room for a front row bishop's options, and a magic item
-const BACKDROP_LOG_HEIGHT := 50.0  # the column is short of room, and a full Inspect screen needs it
 
 const TURN_AROUND_ICON: Texture2D = preload("res://assets/images/rotate.png")
 
@@ -47,9 +68,13 @@ var _title: Label
 var _view_note: Label
 var _body: RichTextLabel
 var _widget_box: VBoxContainer
+var _after_widget: RichTextLabel  # text under the screen's widget
 var _portrait: PanelContainer
 var _side: PanelContainer
-var _sheet: PanelContainer
+var lock: LockScreens
+var _sheet: PanelContainer  # the popup window
+var _popup_block: Control  # stops clicks reaching the screen behind the popup
+var _popup_row: HBoxContainer
 var _dice_tray: DiceTray
 var _gear: PanelContainer
 var _gear_grid: GridContainer
@@ -64,21 +89,33 @@ var _portrait_tomb: TextureRect
 var _entry: LineEdit
 var _opts_flow: HFlowContainer
 var _opts_col: VBoxContainer
-var _log: RichTextLabel
+var _info: PanelContainer  # news of what just happened, shown only while there is some
+var _info_text: RichTextLabel
+var _info_timer: Timer
+var _info_lines: Array[String] = []
+var _info_holding := false
+var _info_held: Array = []  # news that mustn't show yet: [text, kind]
 var _party: RichTextLabel
 var _pad: GridContainer
+var _tools: HBoxContainer  # the small icons at the lower left of the Maze's picture
+var _under_view: Button = null  # an option's big button, centered under the Maze's picture
 var _sounds: AudioStreamPlayer
 var monsters_button: Button
 var god_button: Button
 var town_button: Button
+var chest_button: Button
+var gold_button: Button
+var _debug_panel: PanelContainer
+var _debug_toggle: Button
+var _debug_list: VBoxContainer
 var town_map: TownMap
 var place_image := ""  # the painting of the building the party is in; every screen shows it until cleared
 var _backdrop: TextureRect
 var _header: HBoxContainer
 var _view_box: AspectRatioContainer
 var _panel: PanelContainer
+var _right: VBoxContainer  # the text, with the party table under it
 var _table: PanelContainer
-var _foot: Label
 var mono: Font
 var display: Font
 
@@ -94,10 +131,13 @@ func _ready() -> void:
 	town_map.chosen.connect(_run)
 	add_child(town_map)
 	_build_test_switches()
+	_build_popup()
+	_build_info_window()
 	town = TownScreens.new(self)
 	chars = CharScreens.new(self)
 	mz = MazeScreens.new(self)
 	fight = CombatScreens.new(self)
+	lock = LockScreens.new(self)
 	_sounds = AudioStreamPlayer.new()
 	_sounds.max_polyphony = SOUND_VOICES
 	add_child(_sounds)
@@ -108,8 +148,8 @@ func _ready() -> void:
 	else:
 		town.castle()
 		say("Welcome to the Underworlds", "Trebor, the Mad Overlord, wants his amulet back from the wizard Werdna, who hides at the bottom of the maze beneath the castle.\n\n" +
-			"Start at the [color=#e3a33f]Edge of Town[/color]: open the [color=#e3a33f]Training Grounds[/color] and create six adventurers. Hawkwind recommends two fighters, a priest, a thief and two mages.\n\n" +
-			"Then gather them at Gilgamesh's Tavern, outfit them at Boltac's, and enter the Maze. Run home often.", town.castle)
+			"Start at the [color=#e3a33f]Proving Grounds[/color] and create six adventurers. Hawkwind recommends two fighters, a priest, a thief and two mages.\n\n" +
+			"Then gather them at the Red Dragon Inn, outfit them at the Broken Anvil, and enter the Maze. Run home often.", town.castle)
 
 
 ## This button turns the party to face the other way, so it shows a rotate icon.
@@ -135,24 +175,64 @@ func play_sound(stream: AudioStream) -> void:
 
 
 ## Top middle of every screen, above the paintings.
+## There is no QUIT button in the Maze: closing the window keeps the party where it stands.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and not Game.roster.is_empty():
+		Game.save_game()
+
+
+## A menu for testing, closed to just its button. It opens and closes like the town map's party list.
 func _build_test_switches() -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	_debug_panel = PanelContainer.new()
+	_debug_panel.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.94), UiStyle.C_LINE, 4))
+	_debug_panel.minimum_size_changed.connect(_place_debug_menu, CONNECT_DEFERRED)
+	resized.connect(_place_debug_menu)
+	add_child(_debug_panel)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	_debug_panel.add_child(col)
+	_debug_toggle = Button.new()
+	_debug_toggle.add_theme_constant_override("icon_max_width", DEBUG_ARROW_SIZE)
+	_debug_toggle.focus_mode = Control.FOCUS_NONE
+	UiStyle.make_small_button(_debug_toggle)
+	_debug_toggle.pressed.connect(_toggle_debug_menu)
+	col.add_child(_debug_toggle)
+	_debug_list = VBoxContainer.new()
+	_debug_list.add_theme_constant_override("separation", 4)
+	_debug_list.visible = false
+	col.add_child(_debug_list)
 	monsters_button = _test_switch(Game.monsters_on, _set_monsters)
-	row.add_child(monsters_button)
+	_debug_list.add_child(monsters_button)
 	god_button = _test_switch(Game.god_mode, _set_god)
-	row.add_child(god_button)
-	town_button = Button.new()
-	town_button.text = "TO TOWN"
-	town_button.focus_mode = Control.FOCUS_NONE
-	town_button.add_theme_font_size_override("font_size", 16)
-	town_button.pressed.connect(_teleport_to_town)
-	row.add_child(town_button)
+	_debug_list.add_child(god_button)
+	town_button = _debug_button("TO TOWN", _teleport_to_town)
+	_debug_list.add_child(town_button)
+	chest_button = _debug_button("SPAWN CHEST", _spawn_chest)
+	_debug_list.add_child(chest_button)
+	gold_button = _debug_button("ADD %d GOLD" % DEBUG_GOLD, _add_debug_gold)
+	_debug_list.add_child(gold_button)
 	_show_test_switches()
-	add_child(row)
-	row.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	row.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	row.offset_top = 10
+	_place_debug_menu.call_deferred()
+
+
+func _debug_button(text: String, fn: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 16)
+	b.pressed.connect(fn)
+	return b
+
+
+func _toggle_debug_menu() -> void:
+	_debug_list.visible = not _debug_list.visible
+	_show_test_switches()
+	_place_debug_menu.call_deferred()
+
+
+func _place_debug_menu() -> void:
+	_debug_panel.reset_size()
+	_debug_panel.position = Vector2((size.x - _debug_panel.size.x) * 0.5, DEBUG_TOP)
 
 
 func _test_switch(on: bool, handler: Callable) -> Button:
@@ -175,6 +255,28 @@ func _set_god(on: bool) -> void:
 	_show_test_switches()
 
 
+## To each member of the party, and showing at once on a building's cards and buttons.
+func _add_debug_gold() -> void:
+	for c in Game.party_chars():
+		c.gold += DEBUG_GOLD
+	Game.save_game()
+	Game.say("EACH PARTY MEMBER GAINS %d GOLD." % DEBUG_GOLD, "gold")
+	if _sheet.visible:
+		return
+	match place_image:
+		TownScreens.TAVERN_IMAGE:
+			town.tavern()
+		TownScreens.BOLTAC_IMAGE:
+			town.boltac()
+		TownScreens.INN_IMAGE:
+			town.inn()
+
+
+## A chest of a random size, to test picking its lock without fighting for it.
+func _spawn_chest() -> void:
+	fight.open_chest(Dice.rnd(DEBUG_CHEST_GOLD_MIN, DEBUG_CHEST_GOLD_MAX), false)
+
+
 ## Brings the party home at once, from anywhere in the Maze and even mid-fight, as if it had walked out.
 func _teleport_to_town() -> void:
 	fight.battle = null
@@ -182,8 +284,18 @@ func _teleport_to_town() -> void:
 	town.return_to_castle()
 
 
+## Everything in the menu works only in the Maze, and a chest only while walking, not in a fight or at camp.
+## Gold is the exception: it works anywhere there is a party, as town is where it gets spent.
 func _show_test_switches() -> void:
-	town_button.disabled = Game.mode == "castle" or Game.party.is_empty()
+	var in_maze: bool = Game.mode != "castle" and not Game.party.is_empty()
+	monsters_button.disabled = not in_maze
+	god_button.disabled = not in_maze
+	town_button.disabled = not in_maze
+	chest_button.disabled = not in_maze or Game.mode != "maze"
+	gold_button.disabled = Game.party.is_empty()
+	var is_open := _debug_list.visible
+	_debug_toggle.text = "CLOSE DEBUG MENU" if is_open else "OPEN DEBUG MENU"
+	_debug_toggle.icon = load(TownMap.PARTY_CLOSE_ARROW if is_open else TownMap.PARTY_OPEN_ARROW)
 	monsters_button.text = "MONSTERS: %s" % ("ON" if Game.monsters_on else "OFF")
 	god_button.text = "GOD MODE: %s" % ("ON" if Game.god_mode else "OFF")
 
@@ -234,10 +346,6 @@ func _build_layout() -> void:
 	_side.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.94), UiStyle.C_LINE, 14))
 	_side.visible = false
 	add_child(_side)
-	_sheet = PanelContainer.new()
-	_sheet.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, BACKDROP_PANEL_ALPHA), UiStyle.C_LINE, 8))
-	_sheet.visible = false
-	add_child(_sheet)
 	_gear = PanelContainer.new()
 	_gear.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, GEAR_PANEL_ALPHA), UiStyle.C_LINE, int(GEAR_PANEL_MARGIN)))
 	_gear.position = Vector2(GEAR_LEFT, GEAR_TOP)
@@ -273,6 +381,7 @@ func _build_layout() -> void:
 	_view_box.ratio = 4.0 / 3.0
 	_view_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_view_box.size_flags_stretch_ratio = 1.1
+	_view_box.alignment_vertical = AspectRatioContainer.ALIGNMENT_BEGIN  # level with the panel beside it
 	main.add_child(_view_box)
 	view = MazeView.new()
 	view.mono = mono
@@ -296,6 +405,13 @@ func _build_layout() -> void:
 		b.pressed.connect(_pad_press.bind(spec[1]))
 		_pad.add_child(b)
 	view.add_child(_pad)
+	_tools = HBoxContainer.new()
+	_tools.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_tools.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_tools.offset_left = 10.0
+	_tools.offset_bottom = -10.0
+	_tools.add_theme_constant_override("separation", 6)
+	view.add_child(_tools)
 	_view_note = Label.new()  # in the picture, under the monsters
 	_view_note.add_theme_font_size_override("font_size", PartyCards.FONT_SIZE)
 	_view_note.add_theme_color_override("font_color", Color.WHITE)
@@ -309,16 +425,20 @@ func _build_layout() -> void:
 	view.add_child(_view_note)
 	view.item_rect_changed.connect(_place_view_note)
 
+	_right = VBoxContainer.new()
+	_right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_right.add_theme_constant_override("separation", 12)
+	main.add_child(_right)
 	_panel = PanelContainer.new()
-	_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_panel.item_rect_changed.connect(_place_portrait)
-	main.add_child(_panel)
+	_right.add_child(_panel)
 	var pv := VBoxContainer.new()
 	pv.add_theme_constant_override("separation", 10)
 	_panel.add_child(pv)
 	_title = Label.new()
 	_title.add_theme_font_override("font", display)
-	_title.add_theme_font_size_override("font_size", 28)
+	_title.add_theme_font_size_override("font_size", TITLE_FONT)
 	_title.add_theme_color_override("font_color", UiStyle.C_TORCH)
 	_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	pv.add_child(_title)
@@ -330,6 +450,11 @@ func _build_layout() -> void:
 	pv.add_child(_body)
 	_widget_box = VBoxContainer.new()
 	pv.add_child(_widget_box)
+	_after_widget = RichTextLabel.new()
+	_after_widget.bbcode_enabled = true
+	_after_widget.fit_content = true
+	_after_widget.scroll_active = false
+	pv.add_child(_after_widget)
 	_entry = LineEdit.new()
 	_entry.text_submitted.connect(_on_input_submitted)
 	pv.add_child(_entry)
@@ -342,32 +467,22 @@ func _build_layout() -> void:
 	_exit_row = HBoxContainer.new()  # under the text at the right, on screens with the party's cards
 	_exit_row.alignment = BoxContainer.ALIGNMENT_END
 	pv.add_child(_exit_row)
-	var sep := HSeparator.new()
-	pv.add_child(sep)
-	_log = RichTextLabel.new()
-	_log.bbcode_enabled = true
-	_log.scroll_following = true
-	_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_log.custom_minimum_size = Vector2(0, LOG_HEIGHT)
-	pv.add_child(_log)
 
 	_table = PanelContainer.new()
-	root.add_child(_table)
+	_right.add_child(_table)
 	_party = RichTextLabel.new()
 	_party.bbcode_enabled = true
 	_party.fit_content = true
 	_party.scroll_active = false
 	_table.add_child(_party)
-	_foot = Label.new()
-	_foot.text = "Click or tap a command. In the Maze, use the arrow buttons to move."
-	_foot.add_theme_color_override("font_color", UiStyle.C_DIM)
-	_foot.add_theme_font_size_override("font_size", 18)
-	root.add_child(_foot)
 
 
 # ---------- the menu system ----------
 ## s: {title, where, body (bbcode), opts: [{k (the option's id), label, fn, dis, hide, right}], col,
 ##     party_grid: the widget shows the party, so the party table hides,
+##     row_note: a line beside the left-hand buttons of a spread row, after_widget: text under the widget,
+##     gear_widget: shown in the panel of the party's cards instead of them, gear_note: a line under it,
+##     opts_bottom: the option buttons sit at the bottom of the panel instead of right under the contents,
 ##     view_note: a line under the picture,
 ##     body_height, row_height: fixed heights, for a screen whose layout must not move with its contents,
 ##     input: {ph, max, fn}, moves: {pad button: Callable}, view, pad, widget: Control, map, portrait: path, side: Control}
@@ -378,7 +493,7 @@ func show_screen(s: Dictionary) -> void:
 	_set_portrait(s.get("portrait", ""))
 	_portrait_tomb.visible = s.get("portrait_dead", false)
 	_set_side(s.get("side"))
-	_set_sheet(s.get("sheet", Callable()))
+	_close_popup()
 	if _dice_tray != null or s.get("dice", false):
 		dice_tray().visible = s.get("dice", false)
 		_place_portrait()
@@ -392,12 +507,14 @@ func show_screen(s: Dictionary) -> void:
 	_body.text = s.get("body", "")
 	_body.visible = _body.text != ""
 	_body.custom_minimum_size.y = s.get("body_height", 0.0)
+	_after_widget.text = s.get("after_widget", "")
+	_after_widget.visible = _after_widget.text != ""
 	for n in _widget_box.get_children():
 		n.queue_free()
 	if s.has("widget"):
 		_widget_box.add_child(s["widget"])
 	# A screen with its own portrait, like Inspect, keeps that spot for it.
-	var gear: bool = TownScreens.GEAR_PLACES.has(place_image) and s.get("portrait", "") == "" and not s.has("sheet")
+	var gear: bool = (TownScreens.GEAR_PLACES.has(place_image) or s.has("gear_widget")) and s.get("portrait", "") == ""
 	for n in _opts_flow.get_children() + _opts_col.get_children():
 		n.queue_free()
 	var col: bool = s.get("col", false)
@@ -420,11 +537,11 @@ func show_screen(s: Dictionary) -> void:
 	for o in opts:
 		if o.has("pager"):
 			continue  # these share the row under the list
-		if o.get("hide", false) or o.get("in_widget", false) or (gear and _is_exit(o)):
-			continue  # an in_widget option has its button in the screen's widget instead, and EXIT has its own place
+		if o.get("hide", false) or o.get("in_widget", false) or o.has("under_view") or (gear and _is_exit(o) and not o.has("at")):
+			continue  # an in_widget option has its button in the screen's widget instead, and EXIT has its own place unless given one
 		var b: Button
 		if o.get("small", false):
-			b = _small_button(o, PAGER_FILL, PAGER_EDGE)
+			b = _small_button(o, PAGER_EXIT_FILL if _is_exit(o) else PAGER_FILL, PAGER_EXIT_EDGE if _is_exit(o) else PAGER_EDGE)
 		else:
 			b = Button.new()
 			b.text = _opt_text(o)
@@ -441,6 +558,17 @@ func show_screen(s: Dictionary) -> void:
 			row.get_node(String(o.get("at", "left"))).add_child(b)
 		else:
 			(_opts_col if col else _opts_flow).add_child(b)
+	if row != null and s.get("row_note", "") != "":
+		var note := RichTextLabel.new()
+		note.name = "RowNote"
+		note.bbcode_enabled = true
+		note.scroll_active = false
+		note.text = s["row_note"]
+		note.custom_minimum_size = Vector2(ROW_NOTE_WIDTH, s.get("row_height", 0.0))
+		note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		note.add_theme_font_size_override("normal_font_size", ROW_NOTE_FONT)
+		note.add_theme_font_size_override("italics_font_size", ROW_NOTE_FONT)
+		row.get_node("left").add_child(note)
 	_pager_row = null
 	if opts.any(func(o): return o.has("pager")):
 		_pager_row = _pager_buttons(opts)
@@ -456,8 +584,12 @@ func show_screen(s: Dictionary) -> void:
 		_entry.call_deferred("grab_focus")
 	else:
 		_entry.release_focus()
+	hold_info(false)
 	_pad.visible = s.get("pad", false)
-	_table.visible = not s.has("party_grid") and not gear and not s.has("sheet")
+	_show_tools(s.get("opts", []))
+	_show_under_view(s.get("opts", []))
+	_widget_box.size_flags_vertical = Control.SIZE_EXPAND_FILL if s.get("opts_bottom", false) else Control.SIZE_FILL
+	_table.visible = not s.has("party_grid") and not gear
 	for n in _gear.get_children():
 		n.queue_free()
 	_gear.visible = gear
@@ -465,30 +597,28 @@ func show_screen(s: Dictionary) -> void:
 		var gear_box := VBoxContainer.new()
 		_gear.add_child(gear_box)
 		if s.has("gear_hint"):
-			var hint := Label.new()
-			hint.text = s["gear_hint"]
-			hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			hint.add_theme_font_size_override("font_size", GEAR_HINT_FONT)
-			gear_box.add_child(hint)
-		_gear_grid = town.gear_grid(s.get("gear_pick", Callable()), not s.get("gear_skip_dead", false))
+			gear_box.add_child(_gear_line(s["gear_hint"]))
+		_gear_grid = s["gear_widget"] if s.has("gear_widget") else town.gear_grid(s.get("gear_pick", Callable()), not s.get("gear_skip_dead", false))
 		gear_box.add_child(_gear_grid)
 		_gear_row = _gear_buttons(opts)
+		_gear_row.visible = not s.has("gear_widget")  # that widget has its buttons on its cards
 		gear_box.add_child(_gear_row)
+		if s.has("gear_note"):
+			gear_box.add_child(_gear_line(s["gear_note"]))
 	for n in _exit_row.get_children():
 		n.queue_free()
 	_exit_row.visible = gear
 	if gear:
 		for o in opts:
-			if _is_exit(o) and not o.get("hide", false) and not o.has("pager"):
+			if _is_exit(o) and not o.get("hide", false) and not o.has("pager") and not o.has("at"):
 				_exit_row.add_child(_small_button(o, PAGER_EXIT_FILL, PAGER_EXIT_EDGE))
-	if s.has("party_grid"):
-		_log.custom_minimum_size.y = FIGHT_LOG_HEIGHT
 	_show_test_switches()
 	view.show_view(s.get("view", view.kind))
 	render_party()
 	town_map.visible = s.get("map", false)
 	if town_map.visible:
 		town_map.show_options(s)
+	_place_info.call_deferred()
 
 
 func _place_view_note() -> void:
@@ -496,6 +626,60 @@ func _place_view_note() -> void:
 		return
 	_view_note.reset_size()
 	_view_note.position = Vector2((view.size.x - _view_note.size.x) * 0.5, view.cards_bottom() + VIEW_NOTE_DROP)
+
+
+## A line of small text across the panel of the party's cards.
+func _gear_line(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", GEAR_HINT_FONT)
+	return l
+
+
+## An option with "under_view" (a size) is a big button under the picture, instead of in the panel.
+func _show_under_view(opts: Array) -> void:
+	if _under_view != null:
+		_under_view.hide()
+		_under_view.queue_free()  # it may be the button being pressed right now
+		_under_view = null
+	for o in opts:
+		if o.has("under_view"):
+			_under_view = Button.new()
+			_under_view.text = o["label"]
+			_under_view.custom_minimum_size = o["under_view"]
+			_under_view.focus_mode = Control.FOCUS_NONE
+			_under_view.add_theme_font_size_override("font_size", BIG_BUTTON_FONT)
+			_under_view.pressed.connect(_run.bind(o))
+			add_child(_under_view)
+			_place_under_view.call_deferred()
+
+
+func _place_under_view() -> void:
+	if _under_view == null:
+		return
+	var r := view.get_global_rect()
+	_under_view.reset_size()
+	_under_view.position = Vector2(r.get_center().x - _under_view.size.x * 0.5, r.end.y + INFO_GAP + UNDER_VIEW_DROP)
+
+
+## An option with "tool" is a small icon on the picture, showing its label when the mouse is over it.
+func _show_tools(opts: Array) -> void:
+	for n in _tools.get_children():
+		_tools.remove_child(n)
+		n.queue_free()
+	for o in opts:
+		if not o.has("tool"):
+			continue
+		var b := Button.new()
+		b.icon = load(o["tool"])
+		b.tooltip_text = o["label"]
+		b.custom_minimum_size = TOOL_SIZE
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		b.add_theme_constant_override("icon_max_width", TOOL_ICON_SIZE)
+		b.focus_mode = Control.FOCUS_NONE
+		b.pressed.connect(_run.bind(o))
+		_tools.add_child(b)
 
 
 ## The row under the cards: in_widget options at the left, or at their gear_at of center or right.
@@ -509,17 +693,20 @@ func _gear_buttons(opts: Array) -> HBoxContainer:
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right.alignment = BoxContainer.ALIGNMENT_END
 	for part: HBoxContainer in [left, center, right]:
-		part.add_theme_constant_override("separation", 6)
+		part.add_theme_constant_override("separation", GEAR_BUTTON_GAP)
 		row.add_child(part)
 	for o in opts:
 		if o.get("hide", false) or not o.get("in_widget", false):
 			continue
 		var at: String = o.get("gear_at", "left")
 		var small: bool = o.get("small", false)
-		var b := _small_button(o, PAGER_FILL, PAGER_EDGE) if small else _gear_button(o)
+		var b := _small_button(o, UiStyle.C_STONE2 if o.get("blue", false) else PAGER_FILL, UiStyle.C_LINE if o.get("blue", false) else PAGER_EDGE) if small else _gear_button(o)
 		if small:
 			b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		(right if at == "right" else (center if at == "center" else left)).add_child(b)
+	if center.get_child_count() == 0 and right.get_child_count() == 0:
+		center.visible = false  # their spacing would cost the left group room
+		right.visible = false
 	return row
 
 
@@ -594,14 +781,10 @@ func _set_backdrop(path: String) -> void:
 	_backdrop.texture = load(path) if on else null
 	_header.visible = not on
 	_view_box.visible = not on
-	_foot.visible = not on
-	_log.custom_minimum_size.y = BACKDROP_LOG_HEIGHT if on else LOG_HEIGHT
-	if on:
-		_party.add_theme_font_size_override("normal_font_size", BACKDROP_TABLE_FONT)
-	else:
-		_party.remove_theme_font_size_override("normal_font_size")
+	_party.add_theme_font_size_override("normal_font_size", BACKDROP_TABLE_FONT if on else TABLE_FONT)
+	_right.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN if on else Control.SIZE_EXPAND_FILL
+	_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN if on else Control.SIZE_EXPAND_FILL  # over a painting, only as tall as its contents
 	for p: PanelContainer in [_panel, _table]:
-		p.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN if on else Control.SIZE_EXPAND_FILL
 		p.custom_minimum_size.x = BACKDROP_COLUMN if on else 0.0
 		if on:
 			p.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, BACKDROP_PANEL_ALPHA), UiStyle.C_LINE, 8))
@@ -638,21 +821,85 @@ func dice_tray() -> DiceTray:
 
 ## A character sheet takes the place of the portrait and side panel. make_panel builds its contents,
 ## afresh each time the screen is shown.
-func _set_sheet(make_panel: Callable) -> void:
+func _build_popup() -> void:
+	_popup_block = Control.new()
+	_popup_block.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_popup_block.mouse_filter = Control.MOUSE_FILTER_STOP
+	_popup_block.visible = false
+	add_child(_popup_block)
+	_sheet = PanelContainer.new()
+	var frame := UiStyle.box(Color(UiStyle.C_BG, POPUP_ALPHA), UiStyle.C_TORCH, int(SHEET_MARGIN))
+	frame.set_border_width_all(POPUP_EDGE)
+	_sheet.add_theme_stylebox_override("panel", frame)
+	_sheet.visible = false
+	_sheet.minimum_size_changed.connect(_center_popup, CONNECT_DEFERRED)
+	resized.connect(_center_popup)
+	add_child(_sheet)
+
+
+## A window over the current screen, which stays as it is behind it. Its options work as a screen's do;
+## showing any screen, which is how one of them closes it, closes the window too.
+## make_top builds what goes above s's text, and those of s's options that it doesn't place go below.
+func show_popup(s: Dictionary, make_top: Callable) -> void:
+	scr = s
+	_empty_popup()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	_sheet.add_child(v)
+	var heading := Label.new()
+	heading.name = "PopupTitle"
+	heading.text = s.get("title", "")
+	heading.add_theme_font_override("font", display)
+	heading.add_theme_font_size_override("font_size", POPUP_TITLE_FONT)
+	heading.add_theme_color_override("font_color", UiStyle.C_TORCH)
+	v.add_child(heading)
+	v.add_child(make_top.call())
+	var text := RichTextLabel.new()
+	text.bbcode_enabled = true
+	text.fit_content = true
+	text.scroll_active = false
+	text.text = s.get("body", "")
+	text.visible = text.text != ""
+	v.add_child(text)
+	_popup_row = _spread_row(false)
+	v.add_child(_popup_row)
+	for o in s.get("opts", []):
+		if o.get("hide", false) or o.get("in_widget", false):
+			continue
+		_popup_row.get_node(String(o.get("at", "left"))).add_child(_small_button(o, PAGER_FILL, PAGER_EDGE))
+	_popup_block.visible = true
+	_sheet.visible = true
+	_popup_block.move_to_front()
+	_sheet.move_to_front()
+	_center_popup()
+	_fit_popup.call_deferred()
+
+
+## Its text wraps, and asks for far too much height until it has been laid out at its width.
+func _fit_popup() -> void:
+	if not is_inside_tree():
+		return
+	await get_tree().process_frame
+	_center_popup()
+
+
+func _center_popup() -> void:
+	if not _sheet.visible:
+		return
+	_sheet.reset_size()
+	_sheet.position = ((size - _sheet.size) * 0.5).max(Vector2.ZERO)
+
+
+func _empty_popup() -> void:
 	for n in _sheet.get_children():
 		_sheet.remove_child(n)
 		n.queue_free()
-	_sheet.visible = make_panel.is_valid()
-	if make_panel.is_valid():
-		_sheet.add_child(make_panel.call())
-		_fit_sheet.call_deferred()
-	_place_portrait()
 
 
-## Its text wraps too, and asks for far too much height until it has been laid out at its width.
-func _fit_sheet() -> void:
-	await get_tree().process_frame
-	_sheet.reset_size()
+func _close_popup() -> void:
+	_empty_popup()
+	_sheet.visible = false
+	_popup_block.visible = false
 
 
 ## Wrapped text only knows its height once it has been laid out at its width.
@@ -668,8 +915,6 @@ func _place_portrait() -> void:
 	_portrait.size = Vector2.ONE * PORTRAIT_SIZE
 	_portrait.global_position = Vector2(x, r.position.y)
 	_side.global_position = Vector2(x, maxf(r.position.y, GEAR_TOP))  # clear of the buttons along the top
-	var sheet_x := r.end.x + 14 if _backdrop.visible else r.position.x - 14 - CharacterSheet.WIDTH - 2.0 * SHEET_MARGIN
-	_sheet.global_position = Vector2(sheet_x, maxf(r.position.y, GEAR_TOP))
 	if _dice_tray != null:
 		_dice_tray.global_position = Vector2(r.end.x + 14, r.position.y + (r.size.y - DiceTray.SIZE.y) * 0.5)
 
@@ -699,6 +944,11 @@ func _on_input_submitted(text: String) -> void:
 		f.call(text.strip_edges().to_upper())
 
 
+func set_input_text(text: String) -> void:
+	_entry.text = text
+	_entry.caret_column = text.length()
+
+
 func _submit_input() -> void:
 	_on_input_submitted(_entry.text)
 
@@ -720,15 +970,25 @@ func flav(t: String) -> String:
 
 func say(title: String, body: String, next: Callable, where := "") -> void:
 	var s := {"title": title, "body": body, "opts": [{"k": "Enter", "label": "CONTINUE", "fn": next}]}
+	_keep_cards_in_maze(s)
 	if where != "":
 		s["where"] = where
 	show_screen(s)
 
 
 func yesno(title: String, body: String, yes: Callable, no: Callable, portrait := "") -> void:
-	show_screen({"title": title, "body": body, "portrait": portrait, "opts": [
+	var s := {"title": title, "body": body, "portrait": portrait, "opts": [
 		{"k": "Y", "label": "YES", "fn": yes},
-		{"k": "N", "label": "NO", "fn": no}]})
+		{"k": "N", "label": "NO", "fn": no}]}
+	_keep_cards_in_maze(s)
+	show_screen(s)
+
+
+## The party's cards stay up while walking the Maze, through its messages and questions too.
+func _keep_cards_in_maze(s: Dictionary) -> void:
+	if Game.mode == "maze" and s.get("portrait", "") == "":
+		s["widget"] = fight.explore_grid()
+		s["party_grid"] = true
 
 
 ## A window over the current screen, which waits for an answer. Saying no just closes it.
@@ -821,12 +1081,78 @@ func pick_member(title: String, back: Callable, fn: Callable, filter := Callable
 	choose_list(title, "Who?", items, back)
 
 
+## A window of its own at the bottom of the screen. It lets clicks through to whatever is beneath it.
+func _build_info_window() -> void:
+	_info = PanelContainer.new()
+	_info.visible = false
+	_info.z_index = INFO_LAYER
+	_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_info.add_theme_stylebox_override("panel", UiStyle.box(Color(UiStyle.C_BG, 0.94), UiStyle.C_LINE, 8))
+	_info.minimum_size_changed.connect(_place_info, CONNECT_DEFERRED)
+	resized.connect(_place_info)
+	view.item_rect_changed.connect(_place_info)  # in the Maze it follows the picture
+	view.item_rect_changed.connect(_place_under_view)
+	add_child(_info)
+	_info_text = RichTextLabel.new()
+	_info_text.bbcode_enabled = true
+	_info_text.fit_content = true
+	_info_text.scroll_active = false
+	_info_text.custom_minimum_size.x = INFO_WIDTH
+	_info_text.add_theme_font_size_override("normal_font_size", INFO_FONT)
+	_info_text.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_info.add_child(_info_text)
+	_info_timer = Timer.new()
+	_info_timer.one_shot = true
+	_info_timer.wait_time = INFO_SECONDS
+	_info_timer.timeout.connect(clear_log)
+	add_child(_info_timer)
+
+
+## Centered at the bottom of the screen, as tall as its text. In the Maze it sits under the picture, as
+## wide as the picture, and keeps only the lines that fit there.
+func _place_info() -> void:
+	var in_maze: bool = Game.mode != "castle" and _view_box.visible
+	var r := view.get_global_rect()
+	_info_text.custom_minimum_size.x = r.size.x - INFO_PADDING if in_maze else INFO_WIDTH
+	var top := r.end.y + INFO_GAP
+	if _under_view != null:
+		top += _under_view.get_combined_minimum_size().y + INFO_GAP + UNDER_VIEW_DROP  # below the button that is under the picture
+	if in_maze:
+		var room: float = size.y - INFO_MARGIN - top - INFO_PADDING
+		while _info_lines.size() > 1 and _info_text.get_content_height() > room:
+			_info_lines.pop_front()
+			_info_text.text = "\n".join(_info_lines)
+	_info.reset_size()
+	_info.position = Vector2(r.position.x, top) if in_maze else Vector2((size.x - _info.size.x) * 0.5, size.y - INFO_MARGIN - _info.size.y)
+
+
+## Shows the info window with this line added, for INFO_SECONDS from now.
 func log_line(text: String, kind := "") -> void:
-	_log.append_text("[color=#%s]%s[/color]\n" % [KIND_COLORS.get(kind, "9c947f"), esc(text)])
+	if _info_holding:
+		_info_held.append([text, kind])
+		return
+	_info_lines.append("[color=#%s]%s[/color]" % [KIND_COLORS.get(kind, "c9c0a8"), esc(text)])
+	_info_lines = _info_lines.slice(-INFO_MAX_LINES)
+	_info_text.text = "\n".join(_info_lines)
+	_info.visible = true
+	_info_timer.start()
+	_place_info.call_deferred()
+
+
+## Keeps news back while on, so a fight's news doesn't come before its blow lands. Off shows what was kept.
+func hold_info(on: bool) -> void:
+	_info_holding = on
+	if not on:
+		for news in _info_held:
+			log_line(news[0], news[1])
+		_info_held = []
 
 
 func clear_log() -> void:
-	_log.clear()
+	_info_timer.stop()
+	_info_lines.clear()
+	_info_text.text = ""
+	_info.visible = false
 
 
 ## The front three party rows are bright, the back three dim.
@@ -841,7 +1167,7 @@ func status_color(st: String, ok_color: String) -> String:
 func render_party() -> void:
 	var ps := Game.party_chars()
 	if ps.is_empty():
-		_party.text = "[color=#9c947f]NO PARTY FORMED. VISIT GILGAMESH'S TAVERN TO GATHER ADVENTURERS.[/color]"
+		_party.text = "[color=#9c947f]NO PARTY FORMED. VISIT THE RED DRAGON INN TO GATHER ADVENTURERS.[/color]"
 		return
 	var t := "[table=6][cell][color=#9c947f]#  [/color][/cell][cell][color=#9c947f]CHARACTER NAME     [/color][/cell][cell][color=#9c947f]CLASS   [/color][/cell]" + \
 		"[cell][color=#9c947f]  AC[/color][/cell][cell][color=#9c947f]    HITS[/color][/cell][cell][color=#9c947f]   STATUS[/color][/cell]"

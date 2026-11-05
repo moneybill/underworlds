@@ -1,6 +1,6 @@
 extends Node
 ## Global game state, autoloaded as `Game`. Holds the roster, the party, the party's position
-## in the Maze, Boltac's stock, and expedition-long spell effects. Saves to user://.
+## in the Maze, the Broken Anvil's stock, and expedition-long spell effects. Saves to user://.
 
 signal logged(text: String, kind: String)
 
@@ -11,7 +11,8 @@ var save_path := SAVE_PATH  # tests point this elsewhere
 var settings_path := SETTINGS_PATH  # and this
 var fast_results := false  # Options: fights move straight on, without pausing on each round's results
 const MAZE_LEVELS := 4
-const MAX_ROSTER := 16
+const MAX_ROSTER := 20
+const LOCKED_DOOR_CHANCE := 25  # percent
 
 var roster: Array[Character] = []
 var party: Array[int] = []
@@ -192,6 +193,25 @@ func _door_key(z: int, x: int, y: int, d: int) -> String:
 
 func door_open(z: int, x: int, y: int, d: int) -> bool:
 	return opened.has(_door_key(z, x, y, d))
+
+
+## About one door in four is locked, the same from both of its sides and from one visit to the next.
+func door_locked(z: int, x: int, y: int, d: int) -> bool:
+	return posmod(hash([_door_id(z, x, y, d), "locked"]), 100) < LOCKED_DOOR_CHANCE
+
+
+func door_solution(z: int, x: int, y: int, d: int, slots: int) -> Array:
+	var out := []
+	for i in slots:
+		out.append(posmod(hash([_door_id(z, x, y, d), "pin", i]), 2))
+	return out
+
+
+## The same for both sides of a door.
+func _door_id(z: int, x: int, y: int, d: int) -> String:
+	var here := _door_key(z, x, y, d)
+	var there := _door_key(z, x + MazeLevel.DX[d], y + MazeLevel.DY[d], (d + 2) % 4)
+	return here if here < there else there
 
 
 ## Opens a door from both of its sides.
